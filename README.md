@@ -20,7 +20,7 @@ VAULT/
 │       │   └── navigation_vfh.py goal-oriented node (adds YOLO state machine)
 │       ├── pd_controller.py      single-rate PD controller
 │       ├── utils.py              NoMaD checkpoint loader
-│       ├── VAULT/              core lib (vfh_star, depth_processing, …)
+│       ├── VfhPlus/            core lib (vfh_star, depth_processing, …)
 ├── intrinsic/                  camera intrinsics per robot
 ├── tb4_bridge/                 ROS 2 ↔ TB4 bridge + RViz layout
 ├── train/vint_train/           runtime-only NoMaD model code
