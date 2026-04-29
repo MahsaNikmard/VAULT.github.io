@@ -1,6 +1,6 @@
-# VfhPlus — Vision-based reactive navigation for TurtleBot 4
+# VAULT: Vision-Aware Unified Layer for safe Traversal 
 
-VfhPlus is a two-layer runtime safety framework that combines a learned
+VAULT is a two-layer runtime safety framework that combines a learned
 navigation policy (NoMaD) with a reactive look-ahead avoider (VFH\*) on top
 of monocular metric depth (Depth-Anything-V2). This repository contains the
 deployment code for the TurtleBot 4 platform with ROS 2 Humble.
@@ -10,20 +10,17 @@ deployment code for the TurtleBot 4 platform with ROS 2 Humble.
 ## 1. Repo layout
 
 ```
-VfhPlus/
+VAULT/
 ├── deployment/
 │   ├── config/                 YAML configs (vfh, robot, models, nomad, …)
 │   ├── model_weights/          place NoMaD / DA2 checkpoints here
-│   ├── maps/, topomaps/        SLAM maps & NoMaD topomaps
 │   └── src/
 │       ├── explore_vfh.py        exploration node (NoMaD + VFH*)
 │       ├── Object_decetion/
 │       │   └── navigation_vfh.py goal-oriented node (adds YOLO state machine)
 │       ├── pd_controller.py      single-rate PD controller
-│       ├── pdd_controller.py     dual-rate PD controller
 │       ├── utils.py              NoMaD checkpoint loader
-│       ├── VfhPlus/              core lib (vfh_star, depth_processing, …)
-│       └── slam/                 SLAM launch
+│       ├── VAULT/              core lib (vfh_star, depth_processing, …)
 ├── intrinsic/                  camera intrinsics per robot
 ├── tb4_bridge/                 ROS 2 ↔ TB4 bridge + RViz layout
 ├── train/vint_train/           runtime-only NoMaD model code
@@ -37,7 +34,7 @@ VfhPlus/
 
 - **Robot**: iRobot TurtleBot 4 with the OAK-D camera (front-facing).
 - **Workstation**: Ubuntu 22.04 with ROS 2 Humble and a CUDA-capable GPU.
-- **Conda env**: the launch scripts assume an env named `CARE`. Create it
+- **Conda env**: the launch scripts assume an env named `VAULT`. Create it
   with the dependencies listed under §4.
 
 ---
@@ -48,7 +45,7 @@ The following must be installed alongside this repo:
 
 | Dependency | Where it goes | Why |
 |---|---|---|
-| [`Depth-Anything-V2`](https://github.com/DepthAnything/Depth-Anything-V2) | `VfhPlus/Depth-Anything-V2/` (sibling of `deployment/`) | depth backbone; `explore_vfh.py` adds its `metric_depth/` to `sys.path` automatically |
+| [`Depth-Anything-V2`](https://github.com/DepthAnything/Depth-Anything-V2) | `VAULT/Depth-Anything-V2/` (sibling of `deployment/`) | depth backbone; `explore_vfh.py` adds its `metric_depth/` to `sys.path` automatically |
 | [`diffusion_policy`](https://github.com/real-stanford/diffusion_policy) | importable on `PYTHONPATH` | NoMaD's `ConditionalUnet1D` |
 | `ultralytics` (`pip install ultralytics`) | conda env | YOLOv8 for the goal-oriented node |
 | Other Python deps | conda env | `torch`, `torchvision`, `numpy`, `opencv-python`, `cv-bridge`, `efficientnet-pytorch`, `diffusers`, `pyyaml`, `matplotlib`, `Pillow`, `prettytable`, `tqdm` |
@@ -73,11 +70,11 @@ YOLO_WEIGHTS=/path/to/your/yolov8n.pt ./run_navigation.sh
 
 1. Clone this repo to your home directory:
    ```bash
-   cd ~ && git clone <this-repo-url> VfhPlus
+   cd ~ && git clone <this-repo-url> VAULT
    ```
 2. Clone Depth-Anything-V2 alongside:
    ```bash
-   cd ~/VfhPlus
+   cd ~/VAULT
    git clone https://github.com/DepthAnything/Depth-Anything-V2.git
    ```
 3. Create + activate the conda env (example):
@@ -112,14 +109,14 @@ navigation, RViz.
 ### Exploration (no goal — pure NoMaD + VFH\*)
 
 ```bash
-cd ~/VfhPlus
+cd ~/VAULT
 ./run_exploration.sh
 ```
 
 ### Goal-oriented (NoMaD + VFH\* + YOLO target lock)
 
 ```bash
-cd ~/VfhPlus
+cd ~/VAULT
 ./run_navigation.sh
 ```
 
@@ -186,7 +183,7 @@ All tunables live under `deployment/config/`:
 ## 8. Notes
 
 - `run_exploration.sh` and `run_navigation.sh` activate the `CARE` conda
-  env and `cd ~/VfhPlus`. Adjust those two lines if your repo lives
+  env and `cd ~/VAULT`. Adjust those two lines if your repo lives
   elsewhere.
 - The deployment pipeline is single-camera, single-GPU. The goal-oriented
   node uses a multithreaded executor (4 threads by default) so DA2 and
