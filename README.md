@@ -14,7 +14,7 @@ that reproduce the safety comparison between VAULT and the NoMaD only baseline.
 
 Project page: https://mahsanikmard.github.io/VAULT.github.io/
 
-Archived release (Zenodo): [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21009013.svg)](https://doi.org/10.5281/zenodo.21009013)
+Archived release (Zenodo): [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21009846.svg)](https://doi.org/10.5281/zenodo.21009846)
 
 Demo video: [videos/Introduction_vault.mp4](videos/Introduction_vault.mp4) (also
 embedded on the project page).

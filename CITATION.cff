@@ -4,7 +4,7 @@ title: "VAULT: Vision-Aware Unified Layer for safe Traversal"
 abstract: "Research artifact for the ACSOS 2026 paper. VAULT is a vision-based runtime safety framework that combines NoMaD, Depth Anything V2, and VFH* on a TurtleBot4 under ROS 2 Humble, with a Webots simulation and an evaluation harness."
 type: software
 license: MIT
-doi: "10.5281/zenodo.21009013"
+doi: "10.5281/zenodo.21009846"
 repository-code: "https://github.com/MahsaNikmard/VAULT.github.io"
 url: "https://mahsanikmard.github.io/VAULT.github.io/"
 authors:
