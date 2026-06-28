@@ -1,6 +1,6 @@
 vint:
-  config_path: "/home/<USER>/VfhPlus/train/config/vint.yaml"
-  ckpt_path: "/home/<USER>/VfhPlus/deployment/model_weights/vint.pth"
+  config_path: "/home/mahsa/VfhPlus/train/config/vint.yaml"
+  ckpt_path: "/home/mahsa/VfhPlus/deployment/model_weights/vint.pth"
 
 late_fusion:
   config_path: "../../train/config/late_fusion.yaml"
@@ -11,13 +11,15 @@ gnm:
   ckpt_path: "../model_weights/gnm_large.pth"
 
 nomad:
-  config_path: "/home/<USER>/VfhPlus/deployment/config/nomad.yaml"
-  ckpt_path: "/home/<USER>/VfhPlus/deployment/model_weights/nomad.pth"
+  config_path: "train/config/nomad.yaml"
+  ckpt_path: "deployment/model_weights/nomad.pth"
+# add your own model configs here after saving the *.pth file to ../model_weight
+
 
 
 
 yolo:
-  model: /home/<USER>/yolov8n.pt             
-  confidence: 0.35                          
-  classes: [56]                              
+  model: /home/mahsa/yolov8n.pt             # absolute path to local weights
+  confidence: 0.35                             # minimum detection confidence  (0.0 – 1.0)
+  classes: [56]                               # 56 = chair
   offline: true       

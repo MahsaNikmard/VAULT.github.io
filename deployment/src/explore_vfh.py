@@ -1,3 +1,27 @@
+"""
+explore_vfh.py – VFH*-based exploration node.
+
+Drop-in replacement for explore_care.py.  Replaces APF collision avoidance
+with the VFH* algorithm using Depth Anything V2 (metric, indoor) for depth.
+
+Architecture
+------------
+Layer 1 – Navigation policy (NoMaD):
+    Generates candidate waypoints via diffusion.  The chosen waypoint is
+    converted to a *nomad vector* (binary direction indicator over angular bins).
+
+Layer 2 – VFH* collision avoidance:
+    The same image is processed by DA2 metric to obtain a depth map in metres,
+    which is back-projected into a *distance vector* (minimum obstacle range
+    per angular bin) and temporally filtered.  VFH* takes the nomad vector
+    (reference direction) and the distance vector (blocked directions) and
+    computes a safe alternative direction when the reference is blocked.
+
+Usage
+-----
+    python explore_vfh.py --waypoint 2 --robot turtlebot4 --model nomad --num-samples 8
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -6,6 +30,8 @@ import sys
 from collections import deque
 from pathlib import Path
 from typing import Deque
+
+# ── DA2 metric depth package path ────────────────────────────────────────────
 _DA2_METRIC = str(Path(__file__).resolve().parents[2] / "Depth-Anything-V2" / "metric_depth")
 if _DA2_METRIC not in sys.path:
     sys.path.insert(0, _DA2_METRIC)
@@ -32,6 +58,11 @@ from VfhPlus.vfh_star import VFHStar
 from VfhPlus.depth_processing import compute_distance_vector, TemporalAggregator, pad_distance_vector
 from VfhPlus.nomad_vector import waypoint_to_reference, bin_to_waypoint, generate_direction_waypoints
 from VfhPlus.depth_markers import DepthMarkerPublisher
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+# Config directory is resolved at import time from --config-dir CLI arg.
+# Default: deployment/config  (real-world).
+# Simulation: simulation/config  (pass --config-dir simulation/config).
 THIS_DIR = Path.cwd()
 print(f"This is the Directory in explore_vfh {THIS_DIR}")
 
@@ -49,7 +80,7 @@ def _parse_config_dir() -> Path:
 _CONFIG_DIR = _parse_config_dir()
 
 ROBOT_CONFIG_PATH = _CONFIG_DIR / "robot.yaml"
-MODEL_CONFIG_PATH = THIS_DIR / "deployment/config/models.yaml" 
+MODEL_CONFIG_PATH = THIS_DIR / "deployment/config/models.yaml"  # models.yaml stays in deployment
 VFH_CONFIG_PATH = _CONFIG_DIR / "vfh.yaml"
 
 print(f"Config directory: {_CONFIG_DIR}")
@@ -78,11 +109,16 @@ def _load_model(model_name: str, device: torch.device):
     return model.to(device).eval(), model_params
 
 
+# ═════════════════════════════════════════════════════════════════════════════
 class VFHExplorationNode(Node):
+    """ROS 2 exploration node with VFH* collision avoidance."""
+
     def __init__(self, args: argparse.Namespace):
         super().__init__("vfh_exploration")
         self.args = args
+        self.baseline = getattr(args, "baseline", False)
 
+        # ── Device & Navigation Model ────────────────────────────────────
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.get_logger().info(f"Using device: {self.device}")
 
@@ -101,6 +137,7 @@ class VFHExplorationNode(Node):
         self.context_queue: Deque[np.ndarray] = deque(maxlen=self.context_size + 1)
         self.bridge = CvBridge()
 
+        # ── Robot-specific configuration ─────────────────────────────────
         if args.robot == "locobot" or args.robot == "locobot2":
             image_topic = "/robot1/camera/image" if args.robot == "locobot" else "/robot3/camera/image"
             waypoint_topic = "/robot1/waypoint" if args.robot == "locobot" else "/robot3/waypoint"
@@ -122,6 +159,7 @@ class VFHExplorationNode(Node):
         else:
             raise ValueError(f"Unknown robot type: {args.robot}")
 
+        # ── VFH* parameters ─────────────────────────────────────────────
         self.vfh_num_bins = VFH_CONF.get("num_bins", D.NUM_BINS)
         self.vfh_fov_deg = VFH_CONF.get("fov_deg", D.FOV_DEG)
         self.vfh_max_range = VFH_CONF.get("max_sensing_range", D.MAX_RANGE)
@@ -133,6 +171,7 @@ class VFHExplorationNode(Node):
         self.vfh_num_waypoints = VFH_CONF.get("num_vfh_waypoints", D.NUM_VFH_WAYPOINTS)
         self.vfh_waypoint_index = VFH_CONF.get("vfh_waypoint_index", D.VFH_WAYPOINT_INDEX)
 
+        # ── FOV padding (virtual blocked bins at each edge) ────────────
         self.fov_padding_bins = VFH_CONF.get("fov_padding_bins", D.FOV_PADDING_BINS)
         self.vfh_total_bins = self.vfh_num_bins + 2 * self.fov_padding_bins
         bin_width_deg = self.vfh_fov_deg / self.vfh_num_bins
@@ -152,9 +191,12 @@ class VFHExplorationNode(Node):
             fov_padding_bins=self.fov_padding_bins,
         )
 
+        # ── Depth model (Depth Anything V2, metric indoor) ────────────────
         intrinsics_path = self._get_intrinsics_path_from_config()
         self._init_depth_model(intrinsics_path)
 
+        # Shared state: latest distance vector (updated in image callback)
+        # Initialised at padded size so VFH* sees blocked edges from the start
         self.distance_vector = pad_distance_vector(
             np.full(self.vfh_num_bins, np.inf),
             padding_bins=self.fov_padding_bins,
@@ -165,8 +207,9 @@ class VFHExplorationNode(Node):
             danger_threshold=VFH_CONF.get("safety_threshold", D.SAFETY_THRESHOLD),
         )
         self.current_waypoint = np.zeros(2)
-        self._new_depth_available = False  
+        self._new_depth_available = False  # gate: only infer when fresh depth exists
 
+        # ── RViz depth marker publisher ──────────────────────────────────
         self.depth_marker_pub = DepthMarkerPublisher(
             node=self,
             topic="/vfh/depth_markers",
@@ -176,12 +219,7 @@ class VFHExplorationNode(Node):
             safety_threshold=VFH_CONF.get("safety_threshold", D.SAFETY_THRESHOLD),
         )
 
-        self._odom_x = 0.0
-        self._odom_y = 0.0
-        self._odom_theta = 0.0
-        self._cmd_v = 0.0
-        self._cmd_w = 0.0
-
+        # ── ROS topics ──────────────────────────────────────────────────
         image_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.create_subscription(Image, image_topic, self._image_cb, image_qos)
         self.waypoint_pub = self.create_publisher(Float32MultiArray, waypoint_topic, 1)
@@ -190,29 +228,23 @@ class VFHExplorationNode(Node):
         )
         self.viz_pub = self.create_publisher(Image, trajectory_viz_topic, 1)
 
-        from nav_msgs.msg import Odometry as OdomMsg
-        self.create_subscription(OdomMsg, "/odom", self._odom_cb, 10)
-
-        from geometry_msgs.msg import Twist
-        vel_topic = {
-            "locobot": "/robot1/cmd_vel",
-            "locobot2": "/robot3/cmd_vel",
-            "robomaster": "/cmd_vel",
-            "turtlebot4": "/robot2/cmd_vel",
-        }.get(args.robot, "/cmd_vel")
-        self.create_subscription(Twist, vel_topic, self._cmd_vel_cb, 10)
-
         self.create_timer(1.0 / RATE, self._timer_cb)
 
         self._log_params(image_topic, waypoint_topic, sampled_actions_topic,
                          trajectory_viz_topic, intrinsics_path)
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Config helpers
+    # ──────────────────────────────────────────────────────────────────────
     def _get_intrinsics_path_from_config(self) -> str:
         if "intrinsics_path" in ROBOT_CONF:
             p = ROBOT_CONF["intrinsics_path"]
         else:
             robot_key = f"{self.args.robot}_intrinsics_path"
             defaults = {
+                # "locobot": "intrinsic/locobot/intrinsics.npy",
+                # "locobot2": "intrinsic/locobot/intrinsics.npy",
+                # "robomaster": "intrinsic/robomaster/intrinsics.npy",
                 "turtlebot4": "intrinsic/turtlebot4/intrinsics.npy",
             }
             p = ROBOT_CONF.get(robot_key, defaults.get(self.args.robot, ""))
@@ -282,18 +314,9 @@ class VFHExplorationNode(Node):
         L(f"  Viz:       {viz_t}")
         L("=" * 60)
 
-    def _odom_cb(self, msg):
-        self._odom_x = msg.pose.pose.position.x
-        self._odom_y = msg.pose.pose.position.y
-        import math as _m
-        q = msg.pose.pose.orientation
-        self._odom_theta = _m.atan2(2.0 * (q.w * q.z + q.x * q.y),
-                                     1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-
-    def _cmd_vel_cb(self, msg):
-        self._cmd_v = msg.linear.x
-        self._cmd_w = msg.angular.z
-
+    # ──────────────────────────────────────────────────────────────────────
+    # Image callback → depth → distance vector
+    # ──────────────────────────────────────────────────────────────────────
     def _image_cb(self, msg: Image):
         now = self.get_clock().now()
         if (now - self.last_ctx_time).nanoseconds < self.ctx_dt * 1e9:
@@ -301,6 +324,7 @@ class VFHExplorationNode(Node):
         self.context_queue.append(msg_to_pil(msg))
         self.last_ctx_time = now
 
+        # ── Depth inference (DA2 metric → depth map in metres) ──────────
         cv2_img = self.bridge.imgmsg_to_cv2(msg)
         if self.args.robot in ("locobot", "locobot2"):
             frame = cv2.resize(cv2_img, self.DIM)
@@ -308,7 +332,9 @@ class VFHExplorationNode(Node):
             frame = cv2_img
 
         with torch.no_grad():
-            depth_map = self.depth_model.infer_image(frame)  
+            depth_map = self.depth_model.infer_image(frame)  # (H, W) in metres
+
+        # ── Build distance vector + temporal filtering ────────────────────
         raw_dv = compute_distance_vector(
             depth_map, self.K,
             num_bins=self.vfh_num_bins,
@@ -326,6 +352,9 @@ class VFHExplorationNode(Node):
         self._new_depth_available = True
 
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Trajectory selection helper
+    # ──────────────────────────────────────────────────────────────────────
     def _angle_between(self, v1: np.ndarray, v2: np.ndarray) -> float:
         n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
         if n1 < 1e-3 or n2 < 1e-3:
@@ -347,7 +376,12 @@ class VFHExplorationNode(Node):
 
 
 
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Timer callback → NoMaD inference → VFH* → publish
+    # ──────────────────────────────────────────────────────────────────────
     def _republish_waypoint(self):
+        """Re-publish the last known waypoint to keep PD controller active."""
         if np.linalg.norm(self.current_waypoint) > 1e-3:
             waypoint_msg = Float32MultiArray()
             waypoint_msg.data = [float(self.current_waypoint[0]),
@@ -355,15 +389,22 @@ class VFHExplorationNode(Node):
             self.waypoint_pub.publish(waypoint_msg)
 
     def _timer_cb(self):
+        # Skip the cycle if the context is shutting down (avoids publish races on Ctrl+C).
+        if not rclpy.ok():
+            return
+
+        # Always re-publish last waypoint so PD controller never starves
         self._republish_waypoint()
 
         if len(self.context_queue) <= self.context_size:
             return
 
+        # Only run heavy inference when new depth data has arrived
         if not self._new_depth_available:
             return
         self._new_depth_available = False
 
+        # ── Layer 1: NoMaD diffusion ─────────────────────────────────────
         obs_imgs = transform_images(
             list(self.context_queue), self.model_params["image_size"], center_crop=False
         ).to(self.device)
@@ -397,7 +438,13 @@ class VFHExplorationNode(Node):
                 )
                 naction = self.noise_scheduler.step(noise_pred, k, naction).prev_sample
 
-        traj_batch = to_numpy(get_action(naction))  
+        traj_batch = to_numpy(get_action(naction))  # (num_samples, len_traj, 2)
+
+        # ── Layer 2: VFH* collision avoidance (all trajectories jointly) ──
+        # Convert every trajectory sample to its reference bin so that VFH*
+        # performs trajectory selection and collision avoidance in one step.
+        # This prevents oscillation caused by NoMaD tracking a previously
+        # VFH*-corrected waypoint as if it were its own output.
         all_ref_bins = []
         all_ref_wps = []
         for i in range(len(traj_batch)):
@@ -410,10 +457,19 @@ class VFHExplorationNode(Node):
             all_ref_bins.append(rb)
             all_ref_wps.append(wp)
 
-        best_bin, best_angle, was_modified = self.vfh.compute(
-            self.distance_vector, all_ref_bins
-        )
+        if self.baseline:
+            # NoMaD-only baseline: follow the learned policy's consensus
+            # direction with no VFH* override. DA2 depth is still measured so
+            # the same safety/clearance metrics are recorded for comparison.
+            best_bin = max(set(all_ref_bins), key=all_ref_bins.count)
+            best_angle = 0.0
+            was_modified = False
+        else:
+            best_bin, best_angle, was_modified = self.vfh.compute(
+                self.distance_vector, all_ref_bins
+            )
 
+        # Identify which trajectory corresponds to best_bin (for magnitude & viz)
         if not was_modified and best_bin in all_ref_bins:
             chosen_idx = all_ref_bins.index(best_bin)
         else:
@@ -421,12 +477,14 @@ class VFHExplorationNode(Node):
         chosen_wp = all_ref_wps[chosen_idx]
         ref_bin = all_ref_bins[chosen_idx]
 
+        # After recovery (reverse+turn), the robot faces a new direction.
+        # Flush stale temporal history so VFH* sees the new scene immediately.
         if self.vfh.recovery_just_completed:
             self.temporal_agg.reset()
             self.vfh.recovery_just_completed = False
             print("[VFH*] Flushed temporal aggregator after recovery")
 
-
+        # Publish depth markers to RViz
         self.depth_marker_pub.publish(
             self.distance_vector,
             selected_bin=best_bin,
@@ -436,6 +494,9 @@ class VFHExplorationNode(Node):
         vfh_waypoint = None
         if was_modified:
             if self.vfh._recovery_phase == self.vfh._PHASE_TURN:
+                # No valid valley: rotate in place toward the turn direction.
+                # 4-D heading waypoint [0, 0, hx, hy] triggers use_heading branch
+                # in PD controller → v=0, pure rotation.
                 import math as _math
                 hx = _math.cos(best_angle)
                 hy = _math.sin(best_angle)
@@ -452,15 +513,14 @@ class VFHExplorationNode(Node):
                 vfh_waypoint = vfh_waypoints[wp_idx]
                 print(f"VFH* selected waypoint index {wp_idx}: {vfh_waypoint}")
 
-        recovery = getattr(self.vfh, '_recovery_phase', 0) != 0  # any non-NORMAL phase
-
         final_wp = vfh_waypoint if vfh_waypoint is not None else chosen_wp
         self.current_waypoint = final_wp
         self._publish_action_msgs(traj_batch, override_waypoint=final_wp)
-        self._publish_viz_image(traj_batch, was_modified, selected_idx=chosen_idx,
-                                final_wp=final_wp)
+        self._publish_viz_image(traj_batch, was_modified, selected_idx=chosen_idx)
 
-
+    # ──────────────────────────────────────────────────────────────────────
+    # Publishing
+    # ──────────────────────────────────────────────────────────────────────
     def _publish_action_msgs(self, traj_batch: np.ndarray, override_waypoint: np.ndarray | None = None):
         sampled_actions_msg = Float32MultiArray()
         sampled_actions_msg.data = [0.0] + [float(x) for x in traj_batch.flatten()]
@@ -474,8 +534,7 @@ class VFHExplorationNode(Node):
         waypoint_msg.data = [float(x) for x in chosen]
         self.waypoint_pub.publish(waypoint_msg)
 
-    def _publish_viz_image(self, traj_batch: np.ndarray, vfh_active: bool,
-                           selected_idx: int = 0, final_wp: np.ndarray | None = None):
+    def _publish_viz_image(self, traj_batch: np.ndarray, vfh_active: bool, selected_idx: int = 0):
         frame = np.array(self.context_queue[-1])
         img_h, img_w = frame.shape[:2]
         viz = frame.copy()
@@ -487,14 +546,9 @@ class VFHExplorationNode(Node):
         lateral_scale = 1.0
         robot_sym = 10
 
-        def wp_to_px(wp):
-            dx, dy = float(wp[0]), float(wp[1])
-            return int(cx - dy * pixels_per_m * lateral_scale), int(cy - dx * pixels_per_m)
-
         cv2.line(viz, (cx - robot_sym, cy), (cx + robot_sym, cy), (255, 0, 0), 2)
         cv2.line(viz, (cx, cy - robot_sym), (cx, cy + robot_sym), (255, 0, 0), 2)
 
-        selected_end = None
         for i, traj in enumerate(traj_batch):
             pts = [(cx, cy)]
             acc_x, acc_y = 0.0, 0.0
@@ -505,54 +559,23 @@ class VFHExplorationNode(Node):
                 py = int(cy - acc_x * pixels_per_m)
                 pts.append((px, py))
             if len(pts) >= 2:
-                if i == selected_idx:
-                    color, thick = (0, 255, 0), 3
-                    selected_end = pts[-1]
+                if vfh_active:
+                    color = (0, 165, 255) if i == selected_idx else (0, 100, 200)
                 else:
-                    color, thick = (140, 140, 140), 1
-                cv2.polylines(viz, [np.array(pts, dtype=np.int32)], False, color, thick)
+                    color = (0, 255, 0) if i == selected_idx else (255, 200, 0)
+                cv2.polylines(viz, [np.array(pts, dtype=np.int32)], False, color, 2)
 
-        if selected_end is not None:
-            cv2.circle(viz, selected_end, 7, (0, 255, 0), -1)
-            cv2.circle(viz, selected_end, 9, (0, 0, 0), 2)
-            cv2.putText(viz, "NoMaD wp",
-                        (selected_end[0] + 10, selected_end[1] - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
-
-        if vfh_active and final_wp is not None:
-            fx, fy = wp_to_px(final_wp)
-            cv2.arrowedLine(viz, (cx, cy), (fx, fy), (255, 0, 0), 3, tipLength=0.25)
-            cv2.drawMarker(viz, (fx, fy), (255, 0, 0),
-                           markerType=cv2.MARKER_STAR, markerSize=20, thickness=2)
-            cv2.putText(viz, "VFH* wp", (fx + 10, fy - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-
-        cv2.rectangle(viz, (0, 0), (img_w, 26), (0, 0, 0), -1)
-        cv2.putText(viz, "EXPLORE", (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                    (220, 220, 220), 1)
-
-        badge_text  = "VFH* OVERRIDE" if vfh_active else "NoMaD"
-        badge_color = (255, 0, 0) if vfh_active else (0, 200, 0)
-        (tw, th), _ = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-        bx = img_w - tw - 12
-        cv2.rectangle(viz, (bx - 6, 3), (img_w - 3, 23), badge_color, -1)
-        cv2.putText(viz, badge_text, (bx, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                    (255, 255, 255), 1)
-
-        ly = img_h - 8
-        cv2.circle(viz, (10, ly - 4), 5, (0, 255, 0), -1)
-        cv2.putText(viz, "NoMaD", (20, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (0, 255, 0), 1)
-        cv2.drawMarker(viz, (80, ly - 4), (255, 0, 0),
-                       markerType=cv2.MARKER_STAR, markerSize=10, thickness=2)
-        cv2.putText(viz, "VFH*", (90, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (255, 0, 0), 1)
+        # Draw VFH status label
+        label = "VFH* ACTIVE" if vfh_active else "VFH* PASS"
+        label_col = (0, 165, 255) if vfh_active else (0, 255, 0)
+        cv2.putText(viz, label, (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45, label_col, 1)
 
         img_msg = self.bridge.cv2_to_imgmsg(viz, encoding="rgb8")
         img_msg.header.stamp = self.get_clock().now().to_msg()
         self.viz_pub.publish(img_msg)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
 def main():
     parser = argparse.ArgumentParser("VFH* exploration (ROS 2)")
     parser.add_argument("--model", "-m", default="nomad")
@@ -570,6 +593,11 @@ def main():
         default="deployment/config",
         help="Path to config directory (default: deployment/config, use simulation/config for sim)",
     )
+    parser.add_argument(
+        "--baseline",
+        action="store_true",
+        help="NoMaD-only baseline: publish the learned policy direction with no VFH* override.",
+    )
     args = parser.parse_args()
 
     rclpy.init()
@@ -579,14 +607,9 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        try:
-            out = node.metrics.save_all()
-            node.metrics.print_summary()
-            print(f"Metrics saved to: {out}")
-        except Exception as e:
-            print(f"Warning: could not save metrics: {e}")
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

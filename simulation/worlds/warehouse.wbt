@@ -1,0 +1,455 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/containers/protos/WoodenBox.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/pallet/protos/WoodenPalletStack.proto"
+
+WorldInfo {
+  title "VfhPlus Warehouse"
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties {
+      material1 "rubber"
+      material2 "concrete"
+    }
+  ]
+}
+Viewpoint {
+  orientation -0.08870400333631599 0.9883204760712571 -0.12391221235372499 1.4595491803374907
+  position -2.945377533804873 2.9378815863151955 27.813584636727143
+  follow "turtlebot4"
+  followType "None"
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 8
+  location 0 0 6
+  castShadows TRUE
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 5
+  location -5 -3 5.5
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 5
+  location 5 -3 5.5
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 5
+  location -5 3 5.5
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 5
+  location 5 3 5.5
+}
+Background {
+  skyColor [
+    0.15 0.15 0.18
+  ]
+}
+Solid {
+  translation 0.134255 -0.0385708 3.55271e-15
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.55 0.55 0.52
+        roughness 0.9
+        metalness 0
+      }
+      geometry Plane {
+        size 7 10
+      }
+    }
+  ]
+  name "floor"
+  contactMaterial "concrete"
+  boundingObject Plane {
+    size 7 10
+  }
+}
+WoodenBox {
+  translation 0.469198 4.56873 0.3
+  name "wooden box(7)"
+}
+WoodenBox {
+  translation -0.35121 1.55652 0.3
+  name "wooden box(2)"
+}
+WoodenBox {
+  translation -0.334691 0.911815 0.3
+  name "wooden box(3)"
+}
+WoodenBox {
+  translation 0.298275 1.5627 0.3
+  name "wooden box(4)"
+}
+WoodenBox {
+  translation 2.8705 -4.29943 0.3
+  name "wooden box(5)"
+}
+WoodenBox {
+  translation 2.21031 -4.3008 0.3
+  name "wooden box(6)"
+}
+WoodenPalletStack {
+  translation 2.13564 0.231246 6.39488e-14
+  name "wooden pallet stack(10)"
+}
+WoodenPalletStack {
+  translation 2.80644 1.30945 -2.30926e-13
+  rotation 0 0 1 1.5708
+  name "wooden pallet stack(11)"
+}
+WoodenPalletStack {
+  translation -2.62309 1.91081 -2.84217e-14
+  name "wooden pallet stack(9)"
+}
+WoodenPalletStack {
+  translation -2.89751 -0.376527 -3.19745e-14
+  rotation 0 0 1 -1.5707953071795862
+  name "wooden pallet stack(5)"
+}
+WoodenPalletStack {
+  translation -1.31273 -2.1925 -1.49214e-13
+  name "wooden pallet stack(7)"
+}
+WoodenPalletStack {
+  translation -2.61121 -4.19121 -3.55272e-14
+  name "wooden pallet stack(6)"
+}
+WoodenPalletStack {
+  translation 2.66915 4.47242 -4.52848e-20
+  name "wooden pallet stack(3)"
+}
+WoodenPalletStack {
+  translation 1.42004 4.47558 -1.56319e-13
+  name "wooden pallet stack(4)"
+}
+WoodenPalletStack {
+  translation -2.62761 -3.16714 1.06581e-14
+  name "wooden pallet stack(1)"
+}
+Solid {
+  translation 0 5 1.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.8
+        roughness 0.8
+      }
+      geometry Box {
+        size 7 0.2 3
+      }
+    }
+  ]
+  name "wall_north"
+  boundingObject Box {
+    size 20 0.2 3
+  }
+}
+Solid {
+  translation 0 -5 1.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.8
+        roughness 0.8
+      }
+      geometry Box {
+        size 7 0.2 3
+      }
+    }
+  ]
+  name "wall_south"
+  boundingObject Box {
+    size 20 0.2 3
+  }
+}
+Solid {
+  translation -3.41976 -0.10041 1.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.8
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 10 3
+      }
+    }
+  ]
+  name "wall_west"
+  boundingObject Box {
+    size 0.2 15 3
+  }
+}
+Solid {
+  translation 3.5 0 1.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.85 0.85 0.8
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 10 3
+      }
+    }
+  ]
+  name "wall_east"
+  boundingObject Box {
+    size 0.2 15 3
+  }
+}
+Solid {
+  translation -3 0.5 1.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.7 0.7 0.7
+        roughness 0.5
+        metalness 0.3
+      }
+      geometry Cylinder {
+        height 3
+        radius 0.15
+      }
+    }
+  ]
+  name "pillar_1"
+  boundingObject Cylinder {
+    height 3
+    radius 0.15
+  }
+}
+Solid {
+  translation 3 0.5 1.5
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.7 0.7 0.7
+        roughness 0.5
+        metalness 0.3
+      }
+      geometry Cylinder {
+        height 3
+        radius 0.15
+      }
+    }
+  ]
+  name "pillar_2"
+  boundingObject Cylinder {
+    height 3
+    radius 0.15
+  }
+}
+Robot {
+  translation 0.898352 2.71641 0.036
+  rotation 0 0 1 -1.5708
+  children [
+    Pose {
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.2 0.2 0.25
+            roughness 0.4
+            metalness 0.2
+          }
+          geometry Cylinder {
+            height 0.092
+            radius 0.17
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 0 0.092
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.85 0.85 0.85
+            roughness 0.5
+          }
+          geometry Cylinder {
+            height 0.06
+            radius 0.16
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0.06 0 0.24
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.1 0.1 0.1
+            roughness 0.3
+          }
+          geometry Box {
+            size 0.03 0.1 0.03
+          }
+        }
+      ]
+    }
+    Camera {
+      translation 0.075 0 0.24
+      name "oakd_rgb"
+      fieldOfView 1.5533
+      width 320
+      height 200
+      near 0.1
+      far 20
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 0.1165 0
+      }
+      device [
+        RotationalMotor {
+          name "left_wheel_motor"
+        }
+        PositionSensor {
+          name "left_wheel_sensor"
+        }
+      ]
+      endPoint Solid {
+        translation 0 0.1165 0
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.1 0.1
+              roughness 0.8
+            }
+            geometry Cylinder {
+              height 0.02
+              radius 0.036
+            }
+          }
+        ]
+        name "left_wheel"
+        contactMaterial "rubber"
+        boundingObject Cylinder {
+          height 0.02
+          radius 0.036
+        }
+        physics Physics {
+          density -1
+          mass 0.05
+        }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 -0.1165 0
+      }
+      device [
+        RotationalMotor {
+          name "right_wheel_motor"
+        }
+        PositionSensor {
+          name "right_wheel_sensor"
+        }
+      ]
+      endPoint Solid {
+        translation 0 -0.1165 0
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.1 0.1
+              roughness 0.8
+            }
+            geometry Cylinder {
+              height 0.02
+              radius 0.036
+            }
+          }
+        ]
+        name "right_wheel"
+        contactMaterial "rubber"
+        boundingObject Cylinder {
+          height 0.02
+          radius 0.036
+        }
+        physics Physics {
+          density -1
+          mass 0.05
+        }
+      }
+    }
+    BallJoint {
+      jointParameters BallJointParameters {
+        anchor 0.13 0 -0.02
+      }
+      endPoint Solid {
+        translation 0.13 0 -0.02
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.3 0.3 0.3
+              roughness 0.6
+            }
+            geometry Sphere {
+              radius 0.016
+            }
+          }
+        ]
+        name "front_caster"
+        boundingObject Sphere {
+          radius 0.016
+        }
+        physics Physics {
+          density -1
+          mass 0.02
+        }
+      }
+    }
+    GPS {
+    }
+    InertialUnit {
+      name "imu"
+    }
+    Gyro {
+    }
+    Accelerometer {
+    }
+  ]
+  name "turtlebot4"
+  boundingObject Cylinder {
+    height 0.05
+    radius 0.17
+  }
+  physics Physics {
+    density -1
+    mass 3.65
+    centerOfMass [
+      0 0 0.01
+    ]
+  }
+  controller "<extern>"
+  supervisor TRUE
+}
+WoodenBox {
+  translation -2.18038 3.22557 0.3
+}
+WoodenBox {
+  translation -0.356136 2.20035 0.3
+  name "wooden box(1)"
+}
+WoodenPalletStack {
+  translation -2.62574 -2.17855 -3.62377e-13
+}
+WoodenPalletStack {
+  translation 1.50197 -2.23616 -2.4869e-14
+  name "wooden pallet stack(8)"
+}
+WoodenPalletStack {
+  translation 2.74217 -2.2154 -1.42109e-14
+  name "wooden pallet stack(2)"
+}

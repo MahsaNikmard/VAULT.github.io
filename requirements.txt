@@ -1,0 +1,33 @@
+# Python dependencies for VAULT.
+#
+# A CUDA enabled build of PyTorch is required. The versions below match the
+# tested configuration (CUDA 13, RTX 4060). If your CUDA version differs,
+# install the matching torch and torchvision from https://pytorch.org first,
+# then install the rest of this file.
+#
+# rclpy and cv_bridge are NOT listed here. They come from ROS 2 Humble and are
+# provided by the system (apt) or by sourcing /opt/ros/humble/setup.bash.
+
+torch==2.11.0
+torchvision==0.26.0
+numpy==1.26.4
+# Pinned below the OpenCV 4.11 line, which requires numpy>=2. Our cv2 usage is
+# basic (image conversion, putText, resize), so any 4.8 to 4.10 build is equivalent.
+opencv-python>=4.8,<4.11
+Pillow==12.1.1
+PyYAML==6.0.3
+matplotlib==3.10.8
+einops==0.8.2
+sympy==1.14.0
+tqdm==4.67.3
+diffusers==0.37.1
+huggingface-hub==1.8.0
+transformers==5.4.0
+ultralytics==8.3.147
+
+# Pulled in by the vendored NoMaD / ViNT model code and the training utilities
+# that the deployment node imports (utils.py -> vint_train models + train_utils).
+efficientnet-pytorch==0.7.1
+vit-pytorch==1.18.0
+prettytable==3.17.0
+wandb==0.25.1

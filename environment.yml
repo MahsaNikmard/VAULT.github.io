@@ -1,0 +1,36 @@
+# Conda environment for VAULT.
+#
+#   conda env create -f environment.yml
+#   conda activate vault
+#
+# ROS 2 Humble must be installed separately and sourced in the same shell
+# before running the code. A CUDA enabled PyTorch is required (see the pip
+# section and the note in requirements.txt).
+name: vault
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      # torch and torchvision come from the CUDA 13 index so the bundled CUDA
+      # libraries (libcufft and friends) match. The rest come from PyPI.
+      - --extra-index-url https://download.pytorch.org/whl/cu130
+      - torch==2.11.0+cu130
+      - torchvision==0.26.0+cu130
+      - numpy==1.26.4
+      - opencv-python>=4.8,<4.11
+      - Pillow==12.1.1
+      - PyYAML==6.0.3
+      - matplotlib==3.10.8
+      - einops==0.8.2
+      - sympy==1.14.0
+      - tqdm==4.67.3
+      - diffusers==0.37.1
+      - huggingface-hub==1.8.0
+      - transformers==5.4.0
+      - ultralytics==8.3.147
+      - efficientnet-pytorch==0.7.1
+      - vit-pytorch==1.18.0
+      - prettytable==3.17.0
+      - wandb==0.25.1

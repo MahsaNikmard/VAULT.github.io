@@ -1,4 +1,20 @@
 #!/usr/bin/env python3
+"""
+TurtleBot4 Namespace Bridge Node
+=================================
+Relays topics between /Turtlebot_02493/* namespace and standard /* namespace
+with correct QoS profiles for each topic type.
+
+Usage:
+    ros2 run tb4_bridge tb4_bridge_node
+    # or directly:
+    python3 tb4_bridge_node.py
+    # or via launch file:
+    ros2 launch tb4_bridge tb4_bridge.launch.py
+
+Requires: ROS_DOMAIN_ID=3
+"""
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import (
@@ -16,6 +32,7 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Twist
 from std_msgs.msg import String
 
+# Try importing iRobot-specific messages (may not be on all systems)
 try:
     from irobot_create_msgs.msg import HazardDetectionVector
     HAS_IROBOT_MSGS = True
@@ -23,6 +40,7 @@ except ImportError:
     HAS_IROBOT_MSGS = False
 
 
+# ── QoS Profiles ─────────────────────────────────────────────
 
 QOS_BEST_EFFORT = QoSProfile(
     reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -31,6 +49,8 @@ QOS_BEST_EFFORT = QoSProfile(
     depth=10,
 )
 
+# Subscribe BEST_EFFORT from robot, but publish RELIABLE so RViz can receive it.
+# RViz's TF listener expects RELIABLE on /tf.
 QOS_TF_PUB = QoSProfile(
     reliability=ReliabilityPolicy.RELIABLE,
     durability=DurabilityPolicy.VOLATILE,
@@ -60,9 +80,13 @@ QOS_TRANSIENT_LOCAL = QoSProfile(
 )
 
 
+# ── Relay specification ───────────────────────────────────────
 
 NS = "/Turtlebot_02493"
 
+# Each entry: (namespaced_topic, standard_topic, msg_type, sub_qos, pub_qos, direction)
+# direction: "from_robot" = subscribe NS, publish standard
+#            "to_robot"   = subscribe standard, publish NS
 
 RELAY_TABLE = [
     # TF
@@ -84,10 +108,15 @@ RELAY_TABLE = [
     # Command velocity (TO the robot)
     ("/cmd_vel",           f"{NS}/cmd_vel", Twist,       QOS_RELIABLE,    QOS_RELIABLE,    "to_robot"),
 
+    # ── CARE-specific /robot2/ namespace mappings ─────────────
+    # CARE expects /robot2/ topics for TurtleBot4.
+    # These relay from the real robot namespace to what CARE subscribes to,
+    # and from what CARE publishes back to the real robot.
     (f"{NS}/oakd/rgb/preview/image_raw", "/robot2/oakd/rgb/preview/image_raw", Image, QOS_BEST_EFFORT, QOS_RELIABLE, "from_robot"),
     ("/robot2/cmd_vel",    f"{NS}/cmd_vel", Twist,       QOS_RELIABLE,    QOS_RELIABLE,    "to_robot"),
 ]
 
+# Optional iRobot-specific topics
 if HAS_IROBOT_MSGS:
     RELAY_TABLE.append(
         (f"{NS}/hazard_detection", "/hazard_detection", HazardDetectionVector, QOS_BEST_EFFORT, QOS_BEST_EFFORT, "from_robot")
@@ -95,30 +124,33 @@ if HAS_IROBOT_MSGS:
 
 
 class TB4BridgeNode(Node):
+    """Bridges namespaced TurtleBot4 topics to standard namespace."""
 
     def __init__(self):
         super().__init__("tb4_bridge")
         self.get_logger().info(f"Starting TurtleBot4 bridge: {NS} ↔ standard namespace")
 
-        self._relays = []  
-        self._msg_counts = {}  
+        self._relays = []  # keep references alive
+        self._msg_counts = {}  # debug counters per topic
 
         for ns_topic, std_topic, msg_type, sub_qos, pub_qos, direction in RELAY_TABLE:
             if direction == "from_robot":
                 sub_topic = ns_topic
                 pub_topic = std_topic
             else:  # to_robot
-                sub_topic = ns_topic   
-                pub_topic = std_topic  
+                sub_topic = ns_topic   # ns_topic is the standard one for to_robot entries
+                pub_topic = std_topic  # std_topic is the namespaced one
 
             publisher = self.create_publisher(msg_type, pub_topic, pub_qos)
             self._msg_counts[sub_topic] = 0
 
+            # Capture publisher in closure with debug logging
             def make_callback(pub, src, dst, node_ref):
                 def callback(msg):
                     pub.publish(msg)
                     node_ref._msg_counts[src] += 1
                     count = node_ref._msg_counts[src]
+                    # Log first message and then every 100th
                     if count == 1:
                         node_ref.get_logger().info(
                             f"  ✓ FIRST msg received: {src} → {dst}"
@@ -152,6 +184,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = TB4BridgeNode()
 
+    # Use multi-threaded executor for better throughput on image topics
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
 

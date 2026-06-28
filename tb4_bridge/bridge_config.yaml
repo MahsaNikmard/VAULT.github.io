@@ -1,10 +1,25 @@
+# ============================================================
+# TurtleBot4 02493 → Standard Namespace Bridge Configuration
+# ============================================================
+# ROS_DOMAIN_ID: 3
+# Robot namespace: /Turtlebot_02493
+# DDS: rmw_fastrtps_cpp (Humble)
+# ============================================================
 
 robot_namespace: "/Turtlebot_02493"
 domain_id: 3
 
+# ----- Topic mappings -----
+# Format: namespaced_topic → standard_topic
+# qos_reliability: "best_effort" or "reliable"
+# qos_durability: "volatile" or "transient_local"
+# direction: "from_robot" (subscribe namespaced, publish standard)
+#            "to_robot"   (subscribe standard, publish namespaced)
+#            "bidirectional"
 
 topics:
 
+  # === TF (critical for RViz and all downstream) ===
   - from: "/Turtlebot_02493/tf"
     to: "/tf"
     msg_type: "tf2_msgs/msg/TFMessage"
@@ -44,7 +59,7 @@ topics:
   - from: "/Turtlebot_02493/scan"
     to: "/scan"
     msg_type: "sensor_msgs/msg/LaserScan"
-    qos_reliability: "reliable"    
+    qos_reliability: "reliable"    # rplidar publishes RELIABLE
     qos_durability: "volatile"
     direction: "from_robot"
 
@@ -64,6 +79,7 @@ topics:
     qos_durability: "volatile"
     direction: "from_robot"
 
+  # === Robot description (for RViz URDF) ===
   - from: "/Turtlebot_02493/robot_description"
     to: "/robot_description"
     msg_type: "std_msgs/msg/String"
@@ -71,12 +87,15 @@ topics:
     qos_durability: "transient_local"
     direction: "from_robot"
 
+  # === Command velocity (TO the robot) ===
   - from: "/cmd_vel"
     to: "/Turtlebot_02493/cmd_vel"
     msg_type: "geometry_msgs/msg/Twist"
     qos_reliability: "reliable"
     qos_durability: "volatile"
     direction: "to_robot"
+
+  # === Hazard detection (CARE safety) ===
   - from: "/Turtlebot_02493/hazard_detection"
     to: "/hazard_detection"
     msg_type: "irobot_create_msgs/msg/HazardDetectionVector"
@@ -84,6 +103,7 @@ topics:
     qos_durability: "volatile"
     direction: "from_robot"
 
+  # === Joint states (RViz model) ===
   - from: "/Turtlebot_02493/joint_states"
     to: "/joint_states"
     msg_type: "sensor_msgs/msg/JointState"

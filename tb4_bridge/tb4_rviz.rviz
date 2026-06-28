@@ -5,9 +5,8 @@ Panels:
     Property Tree Widget:
       Expanded:
         - /Global Options1
-        - /Image1
       Splitter Ratio: 0.5
-    Tree Height: 278
+    Tree Height: 140
   - Class: rviz_common/Views
     Expanded:
       - /Current View1
@@ -257,8 +256,6 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        base_footprint:
-          Value: true
         base_link:
           Value: true
         bump_front_center:
@@ -299,8 +296,6 @@ Visualization Manager:
           Value: true
         front_right_tower_standoff:
           Value: true
-        imu:
-          Value: true
         imu_link:
           Value: true
         ir_intensity_front_center_left:
@@ -318,8 +313,6 @@ Visualization Manager:
         ir_intensity_side_left:
           Value: true
         ir_omni:
-          Value: true
-        left_wheel:
           Value: true
         mouse:
           Value: true
@@ -341,13 +334,9 @@ Visualization Manager:
           Value: true
         oakd_right_camera_optical_frame:
           Value: true
-        odom:
-          Value: true
         rear_left_tower_standoff:
           Value: true
         rear_right_tower_standoff:
-          Value: true
-        right_wheel:
           Value: true
         rplidar_link:
           Value: true
@@ -400,8 +389,6 @@ Visualization Manager:
             {}
           front_right_top_weight_block:
             {}
-          imu:
-            {}
           imu_link:
             {}
           ir_intensity_front_center_left:
@@ -420,11 +407,7 @@ Visualization Manager:
             {}
           ir_omni:
             {}
-          left_wheel:
-            {}
           mouse:
-            {}
-          right_wheel:
             {}
           shell_link:
             front_left_tower_standoff:
@@ -456,9 +439,6 @@ Visualization Manager:
             {}
           wheel_drop_right:
             {}
-        odom:
-          base_footprint:
-            {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -473,7 +453,7 @@ Visualization Manager:
       Color: 255; 0; 0
       Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 4096
@@ -494,7 +474,7 @@ Visualization Manager:
         Value: /scan
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Class: rviz_default_plugins/Image
       Enabled: true
       Max Value: 1
@@ -599,133 +579,19 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
-        Value: /oakd/rgb/preview/image_raw
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        {}
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/detected_objects_markers
-      Value: true
-    - Class: rviz_default_plugins/Image
-      Enabled: true
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
         Value: /robot2/trajectory_viz
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: MarkerArray
       Namespaces:
-        chosen_bin: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/chosen_bin
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        depth_vector: true
-        safety_ring: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/depth_markers
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        {}
+        detection_vector: true
       Topic:
         Depth: 5
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /vfh/detected_objects_markers
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        detected_objects: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/detected_objects_ray
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        goal_refs: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/goal_reference_bins
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        {}
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/nomad_reference_bins
-      Value: true
-    - Class: rviz_default_plugins/Image
-      Enabled: true
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /robot2/trajectory_viz
-      Value: true
-    - Class: rviz_default_plugins/MarkerArray
-      Enabled: true
-      Name: MarkerArray
-      Namespaces:
-        depth_vector: true
-        safety_ring: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /vfh/depth_markers
       Value: true
   Enabled: true
   Global Options:
@@ -787,12 +653,12 @@ Window Geometry:
     collapsed: false
   Height: 1043
   Hide Left Dock: false
-  Hide Right Dock: true
+  Hide Right Dock: false
   Image:
     collapsed: false
   OAK-D RGB:
     collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000002c7000003b9fc0200000007fb0000000a00440065007000740068000000003d000000280000000000000000fb00000012004f0041004b002d00440020005200470042010000003d0000014a0000002800fffffffb000000100044006900730070006c006100790073010000018d00000153000000c900fffffffb0000000a0056006900650077007300000001a1000000a4000000a400fffffffb0000000a0049006d00610067006500000002060000011e0000002800fffffffb0000000a0049006d006100670065000000023e000000e60000002800fffffffb0000000a0049006d00610067006501000002e6000001100000002800ffffff000004b3000003b900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd000000010000000000000294000003b9fc0200000005fb0000000a00440065007000740068000000003d000000280000000000000000fb00000012004f0041004b002d00440020005200470042010000003d000001410000002800fffffffb000000100044006900730070006c0061007900730100000184000000c9000000c900fffffffb0000000a0056006900650077007300000001a1000000a4000000a400fffffffb0000000a0049006d0061006700650100000253000001a30000002800ffffff000004e6000003b900000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Views:
     collapsed: false
   Width: 1920

@@ -1,0 +1,21 @@
+{
+  "title": "VAULT: Vision-Aware Unified Layer for safe Traversal",
+  "description": "Research artifact for the ACSOS 2026 paper \"When Should a Robot Stop Learning and Start Reasoning?\". VAULT is a vision-based runtime safety framework that combines a learned navigation policy (NoMaD), monocular metric depth (Depth Anything V2), and a classical reactive avoider (VFH*) on a TurtleBot4 under ROS 2 Humble. The artifact includes the real-robot deployment code, a Webots simulation of the same pipeline, and the evaluation harness that reproduces the safety comparison between VAULT and the learned-only baseline.",
+  "upload_type": "software",
+  "license": "MIT",
+  "creators": [
+    {"name": "Nikmard, Mahsa", "affiliation": "Gran Sasso Science Institute"},
+    {"name": "Pelliccione, Patrizio", "affiliation": "Gran Sasso Science Institute"},
+    {"name": "D'Angelo, Gianlorenzo", "affiliation": "Gran Sasso Science Institute"}
+  ],
+  "keywords": [
+    "runtime safety",
+    "self-adaptive navigation",
+    "vision-based collision avoidance",
+    "reactive collision avoidance",
+    "learned navigation policy",
+    "ROS 2",
+    "Webots",
+    "TurtleBot4"
+  ]
+}

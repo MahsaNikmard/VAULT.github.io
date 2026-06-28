@@ -1,4 +1,14 @@
 #!/bin/bash
+# ============================================================
+# Quick-start script for the TB4 namespace bridge
+# ============================================================
+# Usage:
+#   cd ~/VfhPlus/tb4_bridge
+#   ./run_bridge.sh
+#
+# This sets the correct domain ID and runs the bridge node.
+# Press Ctrl+C to stop.
+# ============================================================
 
 set -e
 

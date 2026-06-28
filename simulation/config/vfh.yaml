@@ -1,0 +1,34 @@
+# VFH* configuration for the Webots simulation arena
+# ============================================================================
+# Camera: OAK-D RGB, 320×200, HFOV=89° (fieldOfView 1.5533 in the world file)
+# Intrinsics: intrinsic/webots/intrinsics.npy  (fx≈162.8, cx=160, cy=100)
+# ============================================================================
+
+robot_radius: 0.18
+num_bins: 72
+fov_deg: 89.0
+fov_padding_bins: 4          # virtual blocked bins per side (prevents edge valleys)
+
+safety_threshold: 0.7
+max_sensing_range: 3.0
+vertical_margin: 0.10
+floor_margin: 0.10
+safety_margin: 0.6
+
+temporal_window: 5
+s_max: 10
+
+mu1: 3.0
+mu2: 1.0
+mu3: 0.05
+
+speed_reduction: 0.8
+num_vfh_waypoints: 5
+vfh_waypoint_index: 2        # use mid-range waypoint for more decisive motion
+# recovery: rotates in place until clearance is detected (no fixed cycle limit)
+
+# Depth Anything V2 (metric, indoor)
+depth_encoder: "vits"
+depth_max_depth: 20
+depth_scale: 0.5
+depth_weights: "deployment/model_weights/depth_anything_v2_metric_hypersim_vits.pth"

@@ -1,0 +1,10 @@
+# Robot configuration for Webots simulation
+# Used by: explore_vfh.py, pd_controller.py (via --config-dir)
+
+max_v: 0.4       # m/s
+max_w: 0.8       # rad/s
+frame_rate: 8     # Hz
+graph_rate: 0.3333
+
+# Webots camera intrinsics (320x200 @ 89° FOV, fx≈162.8)
+intrinsics_path: intrinsic/webots/intrinsics.npy

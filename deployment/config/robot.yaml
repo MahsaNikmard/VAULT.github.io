@@ -1,7 +1,10 @@
+# Robot configuration for real-world TurtleBot4 deployment
+# For simulation, use: --config-dir simulation/config
 
-max_v: 0.05   # m/s
+max_v: 0.05    # m/s
 max_w: 0.1       # rad/s
 frame_rate: 8   # Hz
 graph_rate: 0.3333
 
+# Real TurtleBot4 OAK-D camera intrinsics
 intrinsics_path: intrinsic/turtlebot4/intrinsics.npy

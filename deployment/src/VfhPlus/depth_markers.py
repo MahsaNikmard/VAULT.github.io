@@ -1,3 +1,23 @@
+"""
+VfhPlus/depth_markers.py – RViz MarkerArray publisher for distance vectors.
+
+Publishes the per-bin minimum-distance vector as a fan of arrow / cylinder
+markers in the ``base_link`` frame so RViz can visualise what the depth
+pipeline sees at every inference step.
+
+Marker layout (top-down, base_link frame)
+-----------------------------------------
+- Each angular bin is drawn as an **arrow** originating at the robot.
+- Arrow length = measured distance for that bin (capped at ``max_range``).
+- Colour ramp: green (far / safe) → yellow → red (close / dangerous).
+- Bins at ``inf`` (no obstacle detected) are drawn as short transparent
+  arrows to keep the fan shape visible.
+- An optional **safety ring** of thin red cylinders shows the
+  ``safety_threshold`` radius.
+
+The publisher is frame-rate independent: call :meth:`publish` from whatever
+callback drives your depth inference.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +37,28 @@ from VfhPlus.defaults import NUM_BINS, FOV_DEG, MAX_RANGE, SAFETY_THRESHOLD
 
 
 class DepthMarkerPublisher:
+    """Publishes a ``visualization_msgs/MarkerArray`` representing the
+    distance vector as a fan of arrows in ``base_link``.
+
+    Parameters
+    ----------
+    node : rclpy.node.Node
+        Parent ROS node (used to create the publisher and read the clock).
+    topic : str
+        Topic name for the MarkerArray.
+    num_bins : int
+        Number of angular bins (must match the distance vector).
+    fov_deg : float
+        Horizontal FOV in degrees.
+    max_range : float
+        Maximum plotting distance for arrows (metres).
+    safety_threshold : float
+        Distance at which colour turns fully red.
+    frame_id : str
+        TF frame for the markers.
+    show_safety_ring : bool
+        Whether to draw a ring of small markers at ``safety_threshold``.
+    """
 
     def __init__(
         self,
@@ -38,6 +80,9 @@ class DepthMarkerPublisher:
         self.frame_id = frame_id
         self.show_safety_ring = show_safety_ring
 
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
     def publish(
         self,
         distance_vector: np.ndarray,
@@ -45,7 +90,19 @@ class DepthMarkerPublisher:
         selected_bin: Optional[int] = None,
         reference_bin: Optional[int] = None,
     ) -> None:
+        """Build and publish the marker array.
 
+        Parameters
+        ----------
+        distance_vector : ndarray (num_bins,)
+            Per-bin minimum obstacle distance.
+        stamp : rclpy.time.Time, optional
+            Header timestamp; defaults to ``node.get_clock().now()``.
+        selected_bin : int, optional
+            Bin chosen by VFH* (drawn in cyan).
+        reference_bin : int, optional
+            Bin requested by NoMaD (drawn in magenta).
+        """
         if stamp is None:
             stamp = self._node.get_clock().now()
 
@@ -56,8 +113,10 @@ class DepthMarkerPublisher:
         bin_width = self.fov_rad / self.num_bins
         lifetime = Duration(sec=0, nanosec=int(0.5e9))  # 500 ms
 
+        # ── Distance arrows ──────────────────────────────────────────────
         for i in range(self.num_bins):
-
+            # Angle in base_link: 0 = forward (+x), positive = left (+y)
+            # Bin 0 = leftmost (most positive angle), bin N-1 = rightmost
             angle = half_fov - (i + 0.5) * bin_width
 
             dist = distance_vector[i]
@@ -73,7 +132,8 @@ class DepthMarkerPublisher:
             m.action = Marker.ADD
             m.lifetime = lifetime
 
-            start = Point(x=0.0, y=0.0, z=0.1)  
+            # Arrow from origin along the bin direction
+            start = Point(x=0.0, y=0.0, z=0.1)  # slight z lift
             end = Point(
                 x=plot_dist * math.cos(angle),
                 y=plot_dist * math.sin(angle),
@@ -97,8 +157,9 @@ class DepthMarkerPublisher:
 
             ma.markers.append(m)
 
+        # ── Safety ring ──────────────────────────────────────────────────
         if self.show_safety_ring:
-            n_ring = self.num_bins * 2  
+            n_ring = self.num_bins * 2  # denser ring
             ring_bin_width = self.fov_rad / n_ring
             for j in range(n_ring):
                 angle = half_fov - (j + 0.5) * ring_bin_width
@@ -119,14 +180,19 @@ class DepthMarkerPublisher:
 
         self._pub.publish(ma)
 
+    # ------------------------------------------------------------------
+    # Colour helpers
+    # ------------------------------------------------------------------
     def _distance_color(self, dist: float) -> ColorRGBA:
-        t = max(0.0, min(1.0, dist / self.max_range))  
+        """Green (far) → yellow → red (close) colour ramp."""
+        t = max(0.0, min(1.0, dist / self.max_range))  # 0=close, 1=far
         if t > 0.5:
             # far half: green → yellow
             s = (t - 0.5) * 2.0
             r = 1.0 - s
             g = 1.0
         else:
+            # close half: yellow → red
             s = t * 2.0
             r = 1.0
             g = s
@@ -134,6 +200,13 @@ class DepthMarkerPublisher:
 
 
 class BinRayMarkerPublisher:
+    """Publish a MarkerArray of colored point-rays along selected bin directions.
+
+    Each call draws one SPHERE_LIST per listed bin (``num_points`` spheres
+    evenly spaced from the robot origin to ``ray_length`` along that bin's
+    angle).  Useful for visualising sparse bin sets: NoMaD reference bins,
+    YOLO goal bins, or the single chosen VFH* output.
+    """
 
     def __init__(
         self,
@@ -170,6 +243,8 @@ class BinRayMarkerPublisher:
 
         ma = MarkerArray()
 
+        # Always emit a DELETEALL so stale rays from the previous call
+        # disappear when the set of bins shrinks.
         clear = Marker()
         clear.header.frame_id = self.frame_id
         clear.header.stamp = ts

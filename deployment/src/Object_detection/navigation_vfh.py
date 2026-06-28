@@ -1,3 +1,39 @@
+"""
+navigation_vfh.py – Goal-oriented VFH* navigation with state-machine control.
+
+State machine
+-------------
+    EXPLORE  (default)
+        NoMaD trajectory bins → VFH* → waypoint
+        Transition → NAV_GOAL  when YOLO detects a target-class object
+                                (first detection triggers the switch)
+
+    NAV_GOAL
+        YOLO detection bins → VFH* safety validation → direction waypoint
+        The detected-object bins replace NoMaD as VFH*'s reference_bins.
+        VFH* finds the safest reachable direction toward the object.
+        Transition → REACHED   when any goal bin depth < safety_threshold
+        Transition → EXPLORE   when no detection for `goal_timeout_frames`
+                                consecutive timer ticks (configurable via
+                                --goal-timeout-frames, default 10)
+
+    REACHED  (terminal)
+        Publish zero velocity. Node stays here until ROS shutdown.
+
+Depth visualisation
+-------------------
+    Publishes VFH* per-bin distance markers to /nav_vfh/depth_markers
+    (same DepthMarkerPublisher used in explore_vfh).
+
+Usage
+-----
+    python navigation_vfh.py \\
+        --robot turtlebot4 \\
+        --yolo-weights /path/to/yolov8n.pt \\
+        --yolo-conf 0.3 \\
+        --yolo-classes 0 \\
+        --goal-timeout-frames 10
+"""
 
 from __future__ import annotations
 
@@ -5,16 +41,17 @@ import argparse
 import math
 import os
 import sys
-import threading
 from collections import deque
 from enum import Enum
 from pathlib import Path
 from typing import Deque, List, Optional, Tuple
 
+# ── DA2 metric depth package path ─────────────────────────────────────────────
 _DA2_METRIC = str(Path(__file__).resolve().parents[3] / "Depth-Anything-V2" / "metric_depth")
 if _DA2_METRIC not in sys.path:
     sys.path.insert(0, _DA2_METRIC)
 
+# ── Deployment src on path ────────────────────────────────────────────────────
 _SRC = str(Path(__file__).resolve().parents[1])
 if _SRC not in sys.path:
     sys.path.insert(0, _SRC)
@@ -23,8 +60,6 @@ import cv2
 import numpy as np
 import rclpy
 from cv_bridge import CvBridge
-from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
-from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
@@ -45,10 +80,11 @@ from VfhPlus.depth_processing import (
 from VfhPlus.nomad_vector import waypoint_to_reference, generate_direction_waypoints
 from VfhPlus.depth_markers import DepthMarkerPublisher, BinRayMarkerPublisher
 
-from Object_decetion.Object_detection import (
+from Object_detection.Object_detection import (
     load_yolo_model, detect_objects_with_confidence,
 )
 
+# ── Config paths ──────────────────────────────────────────────────────────────
 THIS_DIR = Path.cwd()
 
 
@@ -67,7 +103,6 @@ _CONFIG_DIR       = _parse_config_dir()
 ROBOT_CONFIG_PATH = _CONFIG_DIR / "robot.yaml"
 MODEL_CONFIG_PATH = THIS_DIR / "deployment/config/models.yaml"
 VFH_CONFIG_PATH   = _CONFIG_DIR / "vfh.yaml"
-NAV_CONFIG_PATH   = _CONFIG_DIR / "vfh_navigation.yaml"
 
 with open(ROBOT_CONFIG_PATH) as f:
     ROBOT_CONF = yaml.safe_load(f)
@@ -78,25 +113,20 @@ RATE  = ROBOT_CONF["frame_rate"]
 with open(VFH_CONFIG_PATH) as f:
     VFH_CONF = yaml.safe_load(f)
 
-if NAV_CONFIG_PATH.is_file():
-    with open(NAV_CONFIG_PATH) as f:
-        NAV_CONF = yaml.safe_load(f) or {}
-else:
-    NAV_CONF = {}
 
-INFERENCE_HZ     = float(NAV_CONF.get("inference_rate_hz",   RATE))
-CONTROL_HZ       = float(NAV_CONF.get("control_rate_hz",     RATE))
-WATCHDOG_S       = float(NAV_CONF.get("watchdog_timeout_s",  1.0))
-NUM_EXEC_THREADS = int(NAV_CONF.get("num_executor_threads",  4))
-
-
+# ═════════════════════════════════════════════════════════════════════════════
+# Navigation state machine
+# ═════════════════════════════════════════════════════════════════════════════
 
 class NavState(Enum):
-    EXPLORE  = "EXPLORE"   
-    NAV_GOAL = "NAV_GOAL"  
-    REACHED  = "REACHED"   
+    EXPLORE  = "EXPLORE"   # NoMaD-driven free exploration
+    NAV_GOAL = "NAV_GOAL"  # Navigate toward YOLO-detected object
+    REACHED  = "REACHED"   # Object within safety_threshold — stop
 
 
+# ═════════════════════════════════════════════════════════════════════════════
+# NavigationVFHNode
+# ═════════════════════════════════════════════════════════════════════════════
 
 def _load_nomad_model(model_name: str, device: torch.device):
     with open(MODEL_CONFIG_PATH) as f:
@@ -112,13 +142,22 @@ def _load_nomad_model(model_name: str, device: torch.device):
 
 
 class NavigationVFHNode(Node):
+    """Goal-oriented VFH* navigation with EXPLORE / NAV_GOAL / REACHED states.
+
+    EXPLORE  – NoMaD bins → VFH* → NoMaD waypoint (free roaming)
+    NAV_GOAL – YOLO bins  → VFH* → direction waypoint (approach object)
+    REACHED  – zero velocity (terminal)
+    """
+
     def __init__(self, args: argparse.Namespace) -> None:
         super().__init__("navigation_vfh")
         self.args = args
 
+        # ── Device ───────────────────────────────────────────────────────────
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.get_logger().info(f"Device: {self.device}")
 
+        # ── NoMaD ────────────────────────────────────────────────────────────
         self.model, self.model_params = _load_nomad_model(args.model, self.device)
         self.context_size: int = self.model_params["context_size"]
         self.last_ctx_time = self.get_clock().now()
@@ -132,6 +171,7 @@ class NavigationVFHNode(Node):
         self.context_queue: Deque = deque(maxlen=self.context_size + 1)
         self.bridge = CvBridge()
 
+        # ── Robot topics ─────────────────────────────────────────────────────
         if args.robot == "turtlebot4":
             image_topic           = "/robot2/oakd/rgb/preview/image_raw"
             waypoint_topic        = "/robot2/waypoint"
@@ -147,6 +187,7 @@ class NavigationVFHNode(Node):
         else:
             raise ValueError(f"Unknown robot: {args.robot}")
 
+        # ── VFH* parameters ──────────────────────────────────────────────────
         self.vfh_num_bins      = VFH_CONF.get("num_bins",          D.NUM_BINS)
         self.vfh_fov_deg       = VFH_CONF.get("fov_deg",           D.FOV_DEG)
         self.vfh_max_range     = VFH_CONF.get("max_sensing_range",  D.MAX_RANGE)
@@ -177,6 +218,7 @@ class NavigationVFHNode(Node):
             fov_padding_bins        = self.fov_padding_bins,
         )
 
+        # ── DA2 depth model ──────────────────────────────────────────────────
         intrinsics_path = self._intrinsics_path()
         if not os.path.exists(intrinsics_path):
             raise FileNotFoundError(f"Intrinsics not found: {intrinsics_path}")
@@ -199,13 +241,15 @@ class NavigationVFHNode(Node):
         )
         self.depth_model = self.depth_model.to(self.device).eval()
 
+        # ── YOLO model ───────────────────────────────────────────────────────
         yolo_weights = args.yolo_weights
         if not os.path.isabs(yolo_weights):
             yolo_weights = str(THIS_DIR / yolo_weights)
         self.yolo_model, _ = load_yolo_model(yolo_weights, device=str(self.device))
         self.yolo_conf_threshold = args.yolo_conf
-        self.yolo_classes        = args.yolo_classes  
+        self.yolo_classes        = args.yolo_classes  # None = all classes
 
+        # ── Shared state ─────────────────────────────────────────────────────
         self.distance_vector = pad_distance_vector(
             np.full(self.vfh_num_bins, np.inf),
             padding_bins=self.fov_padding_bins,
@@ -218,23 +262,26 @@ class NavigationVFHNode(Node):
         self.current_waypoint    = np.zeros(2)
         self._new_depth_available = False
 
-        self._state_lock = threading.Lock()
-        self._wp_lock    = threading.Lock()
-        self._last_waypoint_time = None      
-        self.watchdog_timeout_s  = WATCHDOG_S
-        self._goal_bins:             List[int]             = []
-        self._goal_confs:            List[float]           = []
-
-        self._goal_bin_ranges:       List[Tuple[int, int]] = []
+        # Latest YOLO results — updated in _image_cb at camera rate.
+        # _goal_stale counts consecutive no-detection image frames and drives
+        # both the memory-clear (EXPLORE only, threshold _goal_max_stale) and
+        # the NAV_GOAL → EXPLORE timeout (threshold goal_timeout_frames).
+        # _goal_seen_last_image is the per-image live-detection flag used by
+        # the debug log to distinguish live detections from cached memory.
+        self._goal_bins:             List[int]   = []
+        self._goal_confs:            List[float] = []
         self._goal_stale:            int  = 0
         self._goal_max_stale:        int  = args.goal_stale_frames
         self._goal_seen_last_image:  bool = False
 
+        # ── State machine ─────────────────────────────────────────────────────
         self.state: NavState = NavState.EXPLORE
         self.goal_timeout_frames: int  = args.goal_timeout_frames
-
+        # Separate arrival threshold (smaller than VFH* safety_threshold so the
+        # robot actually approaches before stopping).
         self.goal_reach_distance: float = args.goal_reach_distance
 
+        # ── Depth markers (RViz visualisation) ───────────────────────────────
         self.depth_marker_pub = DepthMarkerPublisher(
             node             = self,
             topic            = "/vfh/depth_markers",
@@ -245,6 +292,8 @@ class NavigationVFHNode(Node):
         )
 
 
+        # ── Bin-ray marker publishers (RViz) ──────────────────────────────
+        # Detected-object ray (white) — YOLO detections, regardless of state
         self.detected_ray_pub = BinRayMarkerPublisher(
             node      = self,
             topic     = "/vfh/detected_objects_ray",
@@ -253,6 +302,16 @@ class NavigationVFHNode(Node):
             color     = (1.0, 1.0, 1.0, 1.0),
             marker_ns = "detected_objects",
         )
+        # NoMaD reference-bin rays (yellow) — all NoMaD trajectory bins
+        self.nomad_ray_pub = BinRayMarkerPublisher(
+            node      = self,
+            topic     = "/vfh/nomad_reference_bins",
+            num_bins  = self.vfh_total_bins,
+            fov_deg   = self.vfh_virtual_fov,
+            color     = (1.0, 0.95, 0.0, 0.9),
+            marker_ns = "nomad_refs",
+        )
+        # Goal reference-bin rays (orange) — published only in NAV_GOAL
         self.goal_ray_pub = BinRayMarkerPublisher(
             node      = self,
             topic     = "/vfh/goal_reference_bins",
@@ -261,12 +320,13 @@ class NavigationVFHNode(Node):
             color     = (1.0, 0.45, 0.0, 1.0),
             marker_ns = "goal_refs",
         )
+        # Chosen (VFH*-selected) bin ray (bright green) — the waypoint direction
         self.chosen_ray_pub = BinRayMarkerPublisher(
             node       = self,
             topic      = "/vfh/chosen_bin",
             num_bins   = self.vfh_total_bins,
             fov_deg    = self.vfh_virtual_fov,
-            color      = (0.0, 0.2, 1.0 , 1.0),
+            color      = (0.0, 1.0, 0.2, 1.0),
             marker_ns  = "chosen_bin",
             point_size = 0.09,
         )
@@ -275,36 +335,23 @@ class NavigationVFHNode(Node):
 
 
 
-        self._image_group     = MutuallyExclusiveCallbackGroup()
-        self._inference_group = MutuallyExclusiveCallbackGroup()
-        self._control_group   = MutuallyExclusiveCallbackGroup()
 
+        # ── ROS topics ────────────────────────────────────────────────────────
         img_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
-        self.create_subscription(
-            Image, image_topic, self._image_cb, img_qos,
-            callback_group=self._image_group,
-        )
+        self.create_subscription(Image, image_topic, self._image_cb, img_qos)
         self.waypoint_pub        = self.create_publisher(Float32MultiArray, waypoint_topic,        1)
         self.sampled_actions_pub = self.create_publisher(Float32MultiArray, sampled_actions_topic, 1)
         self.viz_pub             = self.create_publisher(Image, trajectory_viz_topic,              1)
         self.reached_goal_pub    = self.create_publisher(Bool, "/topoplan/reached_goal",           1)
 
-        self.create_timer(
-            1.0 / INFERENCE_HZ, self._inference_cb,
-            callback_group=self._inference_group,
-        )
-
-        self.create_timer(
-            1.0 / CONTROL_HZ, self._control_cb,
-            callback_group=self._control_group,
-        )
+        self.create_timer(1.0 / RATE, self._timer_cb)
         self.get_logger().info(
             f"NavigationVFHNode ready — robot={args.robot}, "
             f"state={self.state.value}, "
-            f"goal_timeout={self.goal_timeout_frames} frames, "
-            f"inference={INFERENCE_HZ:.1f}Hz, control={CONTROL_HZ:.1f}Hz, "
-            f"watchdog={self.watchdog_timeout_s:.2f}s"
+            f"goal_timeout={self.goal_timeout_frames} frames"
         )
+
+    # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _intrinsics_path(self) -> str:
         p = ROBOT_CONF.get("intrinsics_path", "")
@@ -318,18 +365,27 @@ class NavigationVFHNode(Node):
         wp_msg = Float32MultiArray()
         wp_msg.data = [0.0, 0.0]
         self.waypoint_pub.publish(wp_msg)
-        with self._wp_lock:
-            self.current_waypoint    = np.zeros(2)
-            self._last_waypoint_time = self.get_clock().now()
+        self.current_waypoint = np.zeros(2)
         self.reached_goal_pub.publish(Bool(data=True))
 
+    def _republish_waypoint(self) -> None:
+        if np.linalg.norm(self.current_waypoint[:2]) > 1e-3:
+            msg = Float32MultiArray()
+            msg.data = [float(x) for x in self.current_waypoint]
+            self.waypoint_pub.publish(msg)
+
+    # ── Image callback: depth + YOLO ─────────────────────────────────────────
 
     def _image_cb(self, msg: Image) -> None:
         now = self.get_clock().now()
         if (now - self.last_ctx_time).nanoseconds < self.ctx_dt * 1e9:
             return
-        pil_frame = msg_to_pil(msg)
+        self.context_queue.append(msg_to_pil(msg))
+        self.last_ctx_time = now
 
+        # Do NOT pass desired_encoding — cv_bridge's C++ color conversion
+        # segfaults when the compiled NumPy ABI differs from the active one.
+        # Decode the raw frame and handle the color space in Python instead.
         frame = self.bridge.imgmsg_to_cv2(msg)
         enc = msg.encoding.lower().replace("-", "")
         if enc in ("rgb8", "rgb"):
@@ -339,6 +395,7 @@ class NavigationVFHNode(Node):
         else:
             bgr = frame  # best-effort; DA2 and YOLO assume BGR
 
+        # DA2 metric depth (expects BGR)
         with torch.no_grad():
             depth_map = self.depth_model.infer_image(bgr)
 
@@ -352,9 +409,15 @@ class NavigationVFHNode(Node):
             safety_margin   = self.vfh_safety_margin,
             depth_scale     = self.vfh_depth_scale,
         )
+        smoothed = self.temporal_agg.update(raw_dv)
+        self.distance_vector      = pad_distance_vector(smoothed, self.fov_padding_bins)
+        self._new_depth_available = True
 
+        # YOLO detection — image pixels span the REAL camera FOV (vfh_num_bins),
+        # not the padded virtual FOV. Map into the real-bin range and shift by
+        # fov_padding_bins so the returned indices line up with distance_vector.
         rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-        raw_bins, goal_confs, raw_ranges = detect_objects_with_confidence(
+        raw_bins, goal_confs = detect_objects_with_confidence(
             rgb,
             self.yolo_model,
             num_bins       = self.vfh_num_bins,
@@ -363,96 +426,82 @@ class NavigationVFHNode(Node):
             classes        = self.yolo_classes,
         )
         goal_bins = [b + self.fov_padding_bins for b in raw_bins]
-        goal_bin_ranges = [
-            (lo + self.fov_padding_bins, hi + self.fov_padding_bins)
-            for (lo, hi) in raw_ranges
-        ]
         if raw_bins:
             self.get_logger().info(
                 f"[DBG/YOLO] raw_bins={raw_bins} (real-FOV space) "
-                f"→ padded_bins={goal_bins}  "
-                f"padded_ranges={goal_bin_ranges} "
+                f"→ padded_bins={goal_bins} "
                 f"(shift=+{self.fov_padding_bins}, valid range "
                 f"{self.fov_padding_bins}..{self.fov_padding_bins + self.vfh_num_bins - 1})"
             )
-
-
-        with self._state_lock:
-            self.context_queue.append(pil_frame)
-            self.last_ctx_time = now
-
-            smoothed = self.temporal_agg.update(raw_dv)
-            self.distance_vector      = pad_distance_vector(smoothed, self.fov_padding_bins)
-            self._new_depth_available = True
-
-            if goal_bins:
-                self._goal_bins             = goal_bins
-                self._goal_confs            = goal_confs
-                self._goal_bin_ranges       = goal_bin_ranges
-                self._goal_stale            = 0
-                self._goal_seen_last_image  = True
-            else:
-                self._goal_stale           += 1
-                self._goal_seen_last_image  = False
-                if self._goal_stale >= self._goal_max_stale and self.state != NavState.NAV_GOAL:
-                    self._goal_bins        = []
-                    self._goal_confs       = []
-                    self._goal_bin_ranges  = []
-
+        if goal_bins:
+            self._goal_bins             = goal_bins
+            self._goal_confs            = goal_confs
+            self._goal_stale            = 0
+            self._goal_seen_last_image  = True
+        else:
+            self._goal_stale           += 1
+            self._goal_seen_last_image  = False
+            # Keep last-known goal bins while NAV_GOAL is active so brief YOLO
+            # misses don't hand the wheel back to NoMaD exploration bins.
+            # The NAV_GOAL → EXPLORE timeout in _timer_cb is authoritative and
+            # fires on the _goal_stale counter, not on bin presence.
+            if self._goal_stale >= self._goal_max_stale and self.state != NavState.NAV_GOAL:
+                self._goal_bins  = []
+                self._goal_confs = []
         if goal_bins:
             self.get_logger().info(
                 f"[YOLO] {len(goal_bins)} object(s) → "
-                f"bins={goal_bins}, ranges={goal_bin_ranges}, "
-                f"confs={[f'{c:.2f}' for c in goal_confs]}"
+                f"bins={goal_bins}, confs={[f'{c:.2f}' for c in goal_confs]}"
             )
 
+    # ── Timer callback: state machine + VFH* + publish ───────────────────────
 
-    def _inference_cb(self) -> None:
+    def _timer_cb(self) -> None:
+        # Re-broadcast last waypoint so PD controller doesn't time-out
+        self._republish_waypoint()
+
+        # REACHED is terminal — keep publishing stop
         if self.state == NavState.REACHED:
             self._publish_stop()
             return
 
+        if len(self.context_queue) <= self.context_size:
+            return
+        if not self._new_depth_available:
+            return
+        self._new_depth_available = False
 
-        with self._state_lock:
-            if len(self.context_queue) <= self.context_size:
-                return
-            if not self._new_depth_available:
-                return
-            self._new_depth_available = False
+        goal_bins  = self._goal_bins  if self._goal_bins  else None
+        goal_confs = self._goal_confs if self._goal_bins  else None
 
-            distance_vector = self.distance_vector.copy()
-            ctx_snapshot    = list(self.context_queue)
-            gbins_snap      = list(self._goal_bins)
-            gconfs_snap     = list(self._goal_confs)
-            granges_snap    = list(self._goal_bin_ranges)
-            goal_stale_snap = self._goal_stale
-
-        goal_bins  = gbins_snap  if gbins_snap else None
-        goal_confs = gconfs_snap if gbins_snap else None
-
+        # ── State transitions ─────────────────────────────────────────────
         prev_state = self.state
 
+        # Enter NAV_GOAL on first detection (EXPLORE → NAV_GOAL).
         if self.state == NavState.EXPLORE and goal_bins:
             self.state = NavState.NAV_GOAL
             self.get_logger().info(
                 f"[NavSM] EXPLORE → NAV_GOAL  (detected bins={goal_bins})"
             )
 
+        # NAV_GOAL body — runs on the transition tick too, so the REACHED
+        # check fires immediately if the object is already within reach.
         if self.state == NavState.NAV_GOAL:
-            if goal_stale_snap >= self.goal_timeout_frames:
+            # Timeout first: fire off _goal_stale (YOLO-miss counter) so the
+            # latched memory in _goal_bins cannot suppress the transition.
+            if self._goal_stale >= self.goal_timeout_frames:
                 self.state = NavState.EXPLORE
-                with self._state_lock:
-                    self._goal_bins       = []
-                    self._goal_confs      = []
-                    self._goal_bin_ranges = []
-                    self._goal_stale      = 0
-                goal_bins  = None
-                goal_confs = None
+                self._goal_bins  = []
+                self._goal_confs = []
+                self._goal_stale = 0
                 self.get_logger().info(
                     f"[NavSM] NAV_GOAL → EXPLORE  "
                     f"(goal lost for {self.goal_timeout_frames} frames)"
                 )
             elif goal_bins:
+                # Goal-reached: object within goal_reach_distance.
+                # Padding bins are filled with 0.0 by design (synthetic blocked
+                # boundary) — skip them to avoid a false REACHED trigger.
                 valid_lo = self.fov_padding_bins
                 valid_hi = self.fov_padding_bins + self.vfh_num_bins - 1
                 for gb in goal_bins:
@@ -462,7 +511,7 @@ class NavigationVFHNode(Node):
                             f"(valid FOV: {valid_lo}–{valid_hi}) — skipping REACHED check"
                         )
                         continue
-                    actual_dist = distance_vector[gb]
+                    actual_dist = self.distance_vector[gb]
                     self.get_logger().info(
                         f"[NavSM] NAV_GOAL  bin={gb}  dist={actual_dist:.2f} m  "
                         f"goal_reach={self.goal_reach_distance:.2f} m"
@@ -477,12 +526,15 @@ class NavigationVFHNode(Node):
                         self._publish_stop()
                         return
 
+        # Reset temporal aggregator only when leaving NAV_GOAL / entering
+        # NAV_GOAL from EXPLORE; skip the no-op reset on the REACHED transition
+        # (we already returned above).
         if prev_state != self.state:
-            with self._state_lock:
-                self.temporal_agg.reset()
+            self.temporal_agg.reset()
 
+        # ── NoMaD inference (runs in both EXPLORE and NAV_GOAL) ──────────
         obs_imgs = transform_images(
-            ctx_snapshot, self.model_params["image_size"], center_crop=False
+            list(self.context_queue), self.model_params["image_size"], center_crop=False
         ).to(self.device)
         fake_goal = torch.randn(
             (1, 3, *self.model_params["image_size"]), device=self.device
@@ -516,6 +568,8 @@ class NavigationVFHNode(Node):
 
         traj_batch = to_numpy(get_action(naction))   # (S, L, 2)
 
+        # Convert all NoMaD trajectories to bins (always needed for EXPLORE
+        # and for viz in NAV_GOAL)
         all_ref_bins: List[int] = []
         all_ref_wps             = []
         for i in range(len(traj_batch)):
@@ -528,55 +582,36 @@ class NavigationVFHNode(Node):
             all_ref_bins.append(rb)
             all_ref_wps.append(wp)
 
+        # ── Select reference_bins and prepare dist_for_vfh ──────────────
+        # VFH* internally clamps any reference bin that falls in the padding
+        # zone to `fov_padding_bins` (left) or `vfh_total_bins-1-fov_padding_bins`
+        # (right).  We must apply the SAME clamping here so that:
+        #   (a) reference_bins we pass are exactly what VFH* will use, and
+        #   (b) the inf-masking targets the bin VFH* actually checks.
         valid_lo = self.fov_padding_bins
         valid_hi = self.fov_padding_bins + self.vfh_num_bins - 1
 
         if self.state == NavState.NAV_GOAL and goal_bins:
+            # Clamp YOLO bins into the valid (camera-visible) FOV range
             clamped_goal_bins = [max(valid_lo, min(gb, valid_hi)) for gb in goal_bins]
             reference_bins = clamped_goal_bins
-
-            dist_for_vfh = distance_vector.copy()
-
-            if (granges_snap
-                    and len(granges_snap) == len(goal_bins)):
-                span_src = list(zip(goal_bins, granges_snap))
-            else:
-                span_src = [(c, (c, c)) for c in goal_bins]
-
-            mask_info = []
-            for center, (lo_raw, hi_raw) in span_src:
-                center_c = max(valid_lo, min(center, valid_hi))
-                span_lo  = max(valid_lo, min(lo_raw, valid_hi))
-                span_hi  = max(valid_lo, min(hi_raw, valid_hi))
-
-                d = float(distance_vector[center_c])
-                if not np.isfinite(d) or d <= 0.1:
-                    d = max(self.vfh.safety_threshold, 0.5)
-                margin_angle = math.atan2(self.vfh.robot_radius, d)
-                margin_bins  = max(1, math.ceil(margin_angle / self.vfh.bin_width))
-                k = margin_bins + self.args.goal_mask_extra
-
-                mask_lo = max(valid_lo, span_lo - k)
-                mask_hi = min(valid_hi, span_hi + k)
-                dist_for_vfh[mask_lo:mask_hi + 1] = np.inf
-                mask_info.append((center_c, span_lo, span_hi, mask_lo, mask_hi, k))
-
-            self.get_logger().info(
-                "[NavSM] NAV_GOAL mask: "
-                + ", ".join(
-                    f"ref={c} span=[{slo}..{shi}] mask=[{mlo}..{mhi}] (±{k})"
-                    for c, slo, shi, mlo, mhi, k in mask_info
-                )
-                + f"  refs={reference_bins}"
-            )
+            # Mask the person's bins as clear — VFH* must not treat the
+            # detected object as an obstacle to avoid.
+            dist_for_vfh = self.distance_vector.copy()
+            for gb in clamped_goal_bins:
+                dist_for_vfh[gb] = np.inf
         else:
+            # EXPLORE or NAV_GOAL with lost detection → NoMaD drives direction
             reference_bins = all_ref_bins
-            dist_for_vfh = distance_vector
+            dist_for_vfh = self.distance_vector
 
         best_bin, best_angle, was_modified = self.vfh.compute(
             dist_for_vfh, reference_bins
         )
 
+        # chosen_idx — closest NoMaD trajectory index (needed for viz in both
+        # states).  chosen_nomad_wp is only meaningful in EXPLORE; in NAV_GOAL
+        # the NoMaD direction has no relation to the goal, so we skip it.
         if best_bin in all_ref_bins:
             chosen_idx = all_ref_bins.index(best_bin)
         else:
@@ -585,47 +620,57 @@ class NavigationVFHNode(Node):
             all_ref_wps[chosen_idx] if self.state == NavState.EXPLORE else None
         )
 
+        # Flush temporal aggregator after a full recovery cycle
         if self.vfh.recovery_just_completed:
             self.temporal_agg.reset()
             self.vfh.recovery_just_completed = False
             self.get_logger().info("[NavVFH*] Flushed temporal aggregator after recovery")
 
+        # ── Depth markers ─────────────────────────────────────────────────
+        # In NAV_GOAL the true reference is the clamped goal bin (passed to
+        # VFH*); in EXPLORE it's the NoMaD-trajectory bin VFH* selected.
         ref_for_viz = (
             reference_bins[0]
             if self.state == NavState.NAV_GOAL and goal_bins
             else all_ref_bins[chosen_idx]
         )
         self.depth_marker_pub.publish(
-            distance_vector,
+            self.distance_vector,
             selected_bin  = best_bin,
             reference_bin = ref_for_viz,
         )
 
-        self.detected_ray_pub.publish(gbins_snap or [])
+        # ── Bin-ray markers (RViz) ────────────────────────────────────────
+        # Detected objects (white): always show YOLO bins if any
+        self.detected_ray_pub.publish(self._goal_bins or [])
+        # NoMaD reference bins (yellow): always show the NoMaD trajectory fan
+        self.nomad_ray_pub.publish(all_ref_bins)
+        # Goal reference bins (orange): only while NAV_GOAL is actually steering
         if self.state == NavState.NAV_GOAL and goal_bins:
             self.goal_ray_pub.publish(reference_bins)
         else:
             self.goal_ray_pub.publish([])
+        # Chosen bin (green): the direction the waypoint actually points to
         self.chosen_ray_pub.publish([best_bin])
 
+        # ── DEBUG: reference/waypoint tracing ─────────────────────────────
         self.get_logger().info(
             f"[DBG] state={self.state.value}  "
-            f"cached_goal_bins={gbins_snap}  "
+            f"cached_goal_bins={self._goal_bins}  "
             f"yolo_hit_last_frame={self._goal_seen_last_image}  "
             f"nomad_bins={all_ref_bins}  "
             f"ref_bins→VFH*={reference_bins}  "
             f"best_bin={best_bin}  was_modified={was_modified}  "
-            f"goal_stale={goal_stale_snap}/"
+            f"goal_stale={self._goal_stale}/"
             f"(mem_clear={self._goal_max_stale}, "
             f"timeout={self.goal_timeout_frames})"
         )
 
+        # ── Waypoint generation ───────────────────────────────────────────
         final_wp = self._make_waypoint(
             best_bin, best_angle, was_modified, chosen_nomad_wp,
         )
-        with self._wp_lock:
-            self.current_waypoint    = final_wp
-            self._last_waypoint_time = self.get_clock().now()
+        self.current_waypoint = final_wp
 
         self.get_logger().info(
             f"[NavVFH*] state={self.state.value}  modified={was_modified}  "
@@ -635,28 +680,7 @@ class NavigationVFHNode(Node):
 
         self._publish(traj_batch, final_wp, was_modified, chosen_idx)
 
-
-    def _control_cb(self) -> None:
-        now = self.get_clock().now()
-        with self._wp_lock:
-            wp     = np.asarray(self.current_waypoint, dtype=float).copy()
-            last_t = self._last_waypoint_time
-
-        if last_t is None:
-            return
-
-        age_s = (now - last_t).nanoseconds * 1e-9
-        if age_s > self.watchdog_timeout_s:
-            msg = Float32MultiArray()
-            msg.data = [0.0, 0.0]
-            self.waypoint_pub.publish(msg)
-            return
-
-        if np.linalg.norm(wp[:2]) > 1e-3 or len(wp) == 4:
-            msg = Float32MultiArray()
-            msg.data = [float(x) for x in wp]
-            self.waypoint_pub.publish(msg)
-
+    # ── Waypoint construction ─────────────────────────────────────────────────
 
     def _make_waypoint(
         self,
@@ -665,6 +689,15 @@ class NavigationVFHNode(Node):
         was_modified: bool,
         chosen_nomad_wp: Optional[np.ndarray],
     ) -> np.ndarray:
+        """Return the 2-D (or 4-D) waypoint to send to the PD controller.
+
+        EXPLORE  + unmodified → use NoMaD waypoint directly (preserves speed)
+        EXPLORE  + modified   → direction waypoint from VFH* (obstacle avoidance)
+        NAV_GOAL              → always a direction waypoint toward best_angle
+                                (no valid NoMaD trajectory in goal direction)
+        TURN phase            → 4-D heading waypoint [0, 0, cos, sin]
+        """
+        # Recovery TURN: send heading command (v=0, pure rotation)
         if was_modified and self.vfh._recovery_phase == self.vfh._PHASE_TURN:
             hx = math.cos(best_angle)
             hy = math.sin(best_angle)
@@ -674,28 +707,26 @@ class NavigationVFHNode(Node):
             return np.array([0.0, 0.0, hx, hy])
 
         if self.state == NavState.EXPLORE and not was_modified:
+            # VFH* fast-path confirmed a NoMaD direction — use its waypoint
             return chosen_nomad_wp
+
+        # All other cases: generate a fresh direction waypoint.
+        # In NAV_GOAL the NoMaD trajectory has no relation to the goal direction,
+        # so use MAX_V as the base speed rather than inheriting NoMaD's magnitude.
         if self.state == NavState.NAV_GOAL:
             magnitude = MAX_V
-            wp_idx   = self.args.nav_goal_waypoint_index
         else:
             magnitude = np.linalg.norm(chosen_nomad_wp)
             if magnitude < 1e-3:
                 magnitude = MAX_V
-            wp_idx = self.vfh_wp_idx
         wps = generate_direction_waypoints(
             best_angle,
             max_magnitude = magnitude * self.vfh_speed_red,
             num_waypoints = self.vfh_num_wps,
         )
-        chosen = wps[min(wp_idx, len(wps) - 1)]
-        self.get_logger().info(
-            f"[NavVFH*] wp_idx={wp_idx}/{len(wps)-1}  "
-            f"magnitude={magnitude * self.vfh_speed_red:.4f} m  "
-            f"chosen_mag={float(np.linalg.norm(chosen)):.4f} m"
-        )
-        return chosen
+        return wps[min(self.vfh_wp_idx, len(wps) - 1)]
 
+    # ── Publishing ────────────────────────────────────────────────────────────
 
     def _publish(
         self,
@@ -704,10 +735,12 @@ class NavigationVFHNode(Node):
         vfh_active: bool,
         selected_idx: int,
     ) -> None:
+        # Sampled trajectories for downstream visualisation
         sa_msg = Float32MultiArray()
         sa_msg.data = [0.0] + [float(x) for x in traj_batch.flatten()]
         self.sampled_actions_pub.publish(sa_msg)
 
+        # Waypoint to PD controller (2-D or 4-D)
         wp_msg = Float32MultiArray()
         wp_msg.data = [float(x) for x in final_wp]
         self.waypoint_pub.publish(wp_msg)
@@ -717,15 +750,14 @@ class NavigationVFHNode(Node):
             f"(len={len(final_wp)})"
         )
 
-
-        self._publish_viz(traj_batch, vfh_active, selected_idx, final_wp)
+        # Trajectory overlay image
+        self._publish_viz(traj_batch, vfh_active, selected_idx)
 
     def _publish_viz(
         self,
         traj_batch: np.ndarray,
         vfh_active: bool,
         selected_idx: int,
-        final_wp: np.ndarray,
     ) -> None:
         frame        = np.array(self.context_queue[-1])
         img_h, img_w = frame.shape[:2]
@@ -733,14 +765,11 @@ class NavigationVFHNode(Node):
         cx, cy       = img_w // 2, int(img_h * 0.95)
         ppm          = 3.0
 
-        def wp_to_px(wp):
-            dx, dy = float(wp[0]), float(wp[1])
-            return int(cx - dy * ppm), int(cy - dx * ppm)
-
+        # Origin cross-hair
         cv2.line(viz, (cx - 10, cy), (cx + 10, cy), (255, 0, 0), 2)
         cv2.line(viz, (cx, cy - 10), (cx, cy + 10), (255, 0, 0), 2)
 
-        selected_end = None
+        # NoMaD trajectory overlays
         for i, traj in enumerate(traj_batch):
             pts = [(cx, cy)]
             ax, ay = 0.0, 0.0
@@ -748,79 +777,44 @@ class NavigationVFHNode(Node):
                 ax += dx; ay += dy
                 pts.append((int(cx - ay * ppm), int(cy - ax * ppm)))
             if len(pts) >= 2:
-                if i == selected_idx:
-                    color, thick = (0, 255, 0), 3
-                    selected_end = pts[-1]
-                else:
-                    color, thick = (140, 140, 140), 1
-                cv2.polylines(viz, [np.array(pts, np.int32)], False, color, thick)
+                color = (
+                    ((0, 165, 255) if vfh_active else (0, 255, 0))
+                    if i == selected_idx
+                    else ((0, 100, 200) if vfh_active else (255, 200, 0))
+                )
+                cv2.polylines(viz, [np.array(pts, np.int32)], False, color, 2)
 
-        if selected_end is not None:
-            cv2.circle(viz, selected_end, 7, (0, 255, 0), -1)
-            cv2.circle(viz, selected_end, 9, (0, 0, 0), 2)
-            cv2.putText(viz, "NoMaD wp",
-                        (selected_end[0] + 10, selected_end[1] - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 255, 0), 1)
-
-        if vfh_active:
-            fx, fy = wp_to_px(final_wp)
-            cv2.arrowedLine(viz, (cx, cy), (fx, fy), (255, 0, 0), 3, tipLength=0.25)
-            cv2.drawMarker(viz, (fx, fy), (255, 0, 0),
-                           markerType=cv2.MARKER_STAR, markerSize=20, thickness=2)
-            cv2.putText(viz, "VFH* wp", (fx + 10, fy - 6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
-
-        with self._state_lock:
-            goal_bins_viz  = list(self._goal_bins)
-            goal_confs_viz = list(self._goal_confs)
-            goal_stale_viz = self._goal_stale
-        if goal_bins_viz:
+        # Goal-bin direction arrows (cyan, length ∝ confidence)
+        if self._goal_bins:
             fov_rad   = math.radians(self.vfh_virtual_fov)
             bin_width = fov_rad / self.vfh_total_bins
-            for gb, gc in zip(goal_bins_viz, goal_confs_viz):
+            for gb, gc in zip(self._goal_bins, self._goal_confs):
                 angle  = fov_rad / 2 - (gb + 0.5) * bin_width
                 length = int(60 * gc)
                 ex = int(cx - math.sin(angle) * length)
                 ey = int(cy - math.cos(angle) * length)
                 cv2.arrowedLine(viz, (cx, cy), (ex, ey), (0, 255, 255), 2, tipLength=0.3)
 
-        cv2.rectangle(viz, (0, 0), (img_w, 26), (0, 0, 0), -1)
+        # State label
         state_colors = {
-            NavState.EXPLORE:  (220, 220, 220),
+            NavState.EXPLORE:  (200, 200, 200),
             NavState.NAV_GOAL: (0, 255, 255),
             NavState.REACHED:  (0, 255, 0),
         }
         label = f"NAV:{self.state.value}"
-        if self.state == NavState.NAV_GOAL and goal_stale_viz > 0:
-            label += f" (lost {goal_stale_viz}/{self.goal_timeout_frames})"
-        cv2.putText(viz, label, (6, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                    state_colors[self.state], 1)
-
-        badge_text  = "VFH* OVERRIDE" if vfh_active else "NoMaD"
-        badge_color = (255, 0, 0) if vfh_active else (0, 200, 0)
-        (tw, th), _ = cv2.getTextSize(badge_text, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 1)
-        bx = img_w - tw - 12
-        cv2.rectangle(viz, (bx - 6, 3), (img_w - 3, 23), badge_color, -1)
-        cv2.putText(viz, badge_text, (bx, 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                    (255, 255, 255), 1)
-
-        ly = img_h - 8
-        cv2.circle(viz, (10, ly - 4), 5, (0, 255, 0), -1)
-        cv2.putText(viz, "NoMaD", (20, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (0, 255, 0), 1)
-        cv2.drawMarker(viz, (80, ly - 4), (255, 0, 0),
-                       markerType=cv2.MARKER_STAR, markerSize=10, thickness=2)
-        cv2.putText(viz, "VFH*", (90, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (255, 0, 0), 1)
-        cv2.arrowedLine(viz, (140, ly - 4), (158, ly - 4), (0, 255, 255), 2, tipLength=0.4)
-        cv2.putText(viz, "goal", (162, ly), cv2.FONT_HERSHEY_SIMPLEX, 0.4,
-                    (0, 255, 255), 1)
+        if self.state == NavState.NAV_GOAL and self._goal_stale > 0:
+            label += f" (lost {self._goal_stale}/{self.goal_timeout_frames})"
+        cv2.putText(
+            viz, label, (5, 15), cv2.FONT_HERSHEY_SIMPLEX, 0.45,
+            state_colors[self.state], 1,
+        )
 
         img_msg = self.bridge.cv2_to_imgmsg(viz, encoding="rgb8")
         img_msg.header.stamp = self.get_clock().now().to_msg()
         self.viz_pub.publish(img_msg)
 
 
+# ═════════════════════════════════════════════════════════════════════════════
 
 def main():
     parser = argparse.ArgumentParser("NavigationVFH — goal-oriented object navigation")
@@ -832,11 +826,11 @@ def main():
     parser.add_argument("--config-dir",  type=str, default="deployment/config")
     parser.add_argument("--yolo-weights",  type=str, required=True,
                         help="Path to YOLO .pt weights file")
-    parser.add_argument("--yolo-conf",     type=float, default=0.6,
-                        help="YOLO confidence threshold (default: 0.6)")
+    parser.add_argument("--yolo-conf",     type=float, default=0.25,
+                        help="YOLO confidence threshold (default: 0.25)")
     parser.add_argument("--yolo-classes",  type=int, nargs="*", default=None,
                         help="YOLO class IDs to detect (default: all classes)")
-    parser.add_argument("--goal-timeout-frames", type=int, default=7,
+    parser.add_argument("--goal-timeout-frames", type=int, default=3,
                         help="Timer ticks without detection before reverting to EXPLORE "
                              "(default: 3)")
     parser.add_argument("--goal-reach-distance", type=float, default=0.000001,
@@ -845,28 +839,15 @@ def main():
     parser.add_argument("--goal-stale-frames", type=int, default=5,
                         help="Consecutive image frames without detection before clearing "
                              "goal bins (default: 3); prevents race-condition blanking")
-    parser.add_argument("--goal-mask-extra", type=int, default=4,
-                        help="Extra bins (beyond the adaptive robot-body margin) masked "
-                             "as clear around each goal bin to keep VFH* from rejecting "
-                             "the goal direction on clearance checks (default: 2)")
-    parser.add_argument("--nav-goal-waypoint-index", type=int, default=0,
-                        help="Waypoint index used in NAV_GOAL state "
-                             "(0 = closest, vfh_num_waypoints-1 = farthest). "
-                             "Lower values give shorter lookahead so the robot "
-                             "re-steers toward the object on each inference "
-                             "instead of committing to a deeper point (default: 0)")
     args = parser.parse_args()
 
     rclpy.init()
     node = NavigationVFHNode(args)
-    executor = MultiThreadedExecutor(num_threads=NUM_EXEC_THREADS)
-    executor.add_node(node)
     try:
-        executor.spin()
+        rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
-        executor.shutdown()
         node.destroy_node()
         rclpy.shutdown()
 

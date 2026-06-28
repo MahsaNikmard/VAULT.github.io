@@ -1,0 +1,480 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/containers/protos/WoodenBox.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/obstacles/protos/OilBarrel.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/factory/pipes/protos/PipeSection.proto"
+
+WorldInfo {
+  title "DWA Sim Arena"
+  basicTimeStep 16
+  contactProperties [
+    ContactProperties {
+      material1 "rubber"
+      material2 "concrete"
+      coulombFriction [
+        1.5
+      ]
+      bounce 0
+      softCFM 0.0001
+    }
+  ]
+}
+Viewpoint {
+  orientation -0.01422881634179474 0.9997571749641941 -0.01682652350086905 1.4225427239611514
+  position -6.625535026077608 4.4095790513087145 39.43079190284455
+  follow "turtlebot4"
+}
+Background {
+  skyColor [
+    0.15 0.15 0.18
+  ]
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 8
+  location 0 0 5
+  castShadows TRUE
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 4
+  location -2.5 -2.5 4
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 4
+  location 2.5 -2.5 4
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 4
+  location -2.5 2.5 4
+}
+PointLight {
+  attenuation 0 0 1
+  intensity 4
+  location 2.5 2.5 4
+}
+Solid {
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.55 0.55 0.52
+        roughness 0.9
+        metalness 0
+      }
+      geometry Plane {
+        size 10 10
+      }
+    }
+  ]
+  name "floor"
+  contactMaterial "concrete"
+  boundingObject Plane {
+    size 10 10
+  }
+}
+Solid {
+  translation 0 5 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 10.4 0.2 1.5
+      }
+    }
+  ]
+  name "wall_north"
+  boundingObject Box {
+    size 10.4 0.2 1.5
+  }
+}
+Solid {
+  translation 3 2.5 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 2 0.2 1.5
+      }
+    }
+  ]
+  name "Internall_wall8"
+  boundingObject Box {
+    size 2 0.2 1.5
+  }
+}
+Solid {
+  translation 3 0.5 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 2 0.2 1.5
+      }
+    }
+  ]
+  name "Internall_wall7"
+  boundingObject Box {
+    size 2 0.2 1.5
+  }
+}
+Solid {
+  translation 3 -1.5 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 1.5 0.2 1.5
+      }
+    }
+  ]
+  name "Internall_wall4"
+  boundingObject Box {
+    size 1.5 0.2 1.5
+  }
+}
+Solid {
+  translation -3 2 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 2 1.5
+      }
+    }
+  ]
+  name "Internall_wall1"
+  boundingObject Box {
+    size 0.2 2 1.5
+  }
+}
+Solid {
+  translation -2 2 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 3.5 1.5
+      }
+    }
+  ]
+  name "Internall_wall5"
+  boundingObject Box {
+    size 0.2 3.5 1.5
+  }
+}
+Solid {
+  translation 0 -2 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 2.5 1.5
+      }
+    }
+  ]
+  name "Internall_wall9"
+  boundingObject Box {
+    size 0.2 2.5 1.5
+  }
+}
+Solid {
+  translation 0 -5 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 10.4 0.2 1.5
+      }
+    }
+  ]
+  name "wall_south"
+  boundingObject Box {
+    size 10.4 0.2 1.5
+  }
+}
+Solid {
+  translation 5 0 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 10.4 1.5
+      }
+    }
+  ]
+  name "wall_east"
+  boundingObject Box {
+    size 0.2 10.4 1.5
+  }
+}
+Solid {
+  translation -5 0 0.75
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.8 0.8 0.78
+        roughness 0.8
+      }
+      geometry Box {
+        size 0.2 10.4 1.5
+      }
+    }
+  ]
+  name "wall_west"
+  boundingObject Box {
+    size 0.2 10.4 1.5
+  }
+}
+WoodenBox {
+  translation 1 0.8 0.3
+  name "box_a"
+}
+WoodenBox {
+  translation 1 1.5 0.3
+  name "box_d"
+}
+WoodenBox {
+  translation 1 3.6 0.3
+  name "box_g"
+}
+OilBarrel {
+  translation 4.5 4.5 0.44
+}
+OilBarrel {
+  translation 3.5 4.5 0.44
+  name "oil barrel(5)"
+}
+OilBarrel {
+  translation 0 4.5 0.44
+  name "oil barrel(1)"
+}
+OilBarrel {
+  translation -1.8 -4 0.44
+  name "oil barrel(3)"
+}
+OilBarrel {
+  translation -4 -3.5 0.44
+  name "oil barrel(6)"
+}
+PipeSection {
+  translation 3 -3 0.25
+  radius 0.5
+}
+Robot {
+  translation -2.5 -2.5 0.036
+  rotation 0 0 1 0.7854
+  children [
+    Pose {
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.2 0.2 0.25
+            roughness 0.4
+            metalness 0.2
+          }
+          geometry Cylinder {
+            height 0.092
+            radius 0.17
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 0 0.092
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.85 0.85 0.85
+            roughness 0.5
+          }
+          geometry Cylinder {
+            height 0.06
+            radius 0.16
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0.06 0 0.24
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.1 0.1 0.1
+            roughness 0.3
+          }
+          geometry Box {
+            size 0.03 0.1 0.03
+          }
+        }
+      ]
+    }
+    Camera {
+      translation 0.075 0 0.24
+      name "oakd_rgb"
+      fieldOfView 1.5533
+      width 320
+      height 200
+      near 0.1
+      far 20
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 0.1165 0
+      }
+      device [
+        RotationalMotor {
+          name "left_wheel_motor"
+        }
+        PositionSensor {
+          name "left_wheel_sensor"
+        }
+      ]
+      endPoint Solid {
+        translation 0 0.1165 0
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.1 0.1
+              roughness 0.8
+            }
+            geometry Cylinder {
+              height 0.02
+              radius 0.036
+            }
+          }
+        ]
+        name "left_wheel"
+        contactMaterial "rubber"
+        boundingObject Cylinder {
+          height 0.02
+          radius 0.036
+        }
+        physics Physics {
+          density -1
+          mass 0.05
+        }
+      }
+    }
+    HingeJoint {
+      jointParameters HingeJointParameters {
+        axis 0 1 0
+        anchor 0 -0.1165 0
+      }
+      device [
+        RotationalMotor {
+          name "right_wheel_motor"
+        }
+        PositionSensor {
+          name "right_wheel_sensor"
+        }
+      ]
+      endPoint Solid {
+        translation 0 -0.1165 0
+        rotation 1 0 0 1.5708
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.1 0.1 0.1
+              roughness 0.8
+            }
+            geometry Cylinder {
+              height 0.02
+              radius 0.036
+            }
+          }
+        ]
+        name "right_wheel"
+        contactMaterial "rubber"
+        boundingObject Cylinder {
+          height 0.02
+          radius 0.036
+        }
+        physics Physics {
+          density -1
+          mass 0.05
+        }
+      }
+    }
+    BallJoint {
+      jointParameters BallJointParameters {
+        anchor 0.13 0 -0.02
+      }
+      endPoint Solid {
+        translation 0.13 0 -0.02
+        children [
+          Shape {
+            appearance PBRAppearance {
+              baseColor 0.3 0.3 0.3
+              roughness 0.6
+            }
+            geometry Sphere {
+              radius 0.016
+            }
+          }
+        ]
+        name "front_caster"
+        boundingObject Sphere {
+          radius 0.016
+        }
+        physics Physics {
+          density -1
+          mass 0.02
+        }
+      }
+    }
+    GPS {
+    }
+    InertialUnit {
+      name "imu"
+    }
+    Gyro {
+    }
+    Accelerometer {
+    }
+  ]
+  name "turtlebot4"
+  boundingObject Cylinder {
+    height 0.05
+    radius 0.17
+  }
+  physics Physics {
+    density -1
+    mass 3.65
+    centerOfMass [
+      0 0 0.01
+    ]
+  }
+  controller "<extern>"
+  supervisor TRUE
+}

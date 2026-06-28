@@ -1,30 +1,32 @@
+# VFH* configuration for real-world TurtleBot4 deployment
+# For simulation, use: --config-dir simulation/config
 
 robot_radius: 0.18
 num_bins: 72
 fov_deg: 89.0
-fov_padding_bins: 10          
+fov_padding_bins: 10          # virtual blocked bins per side (prevents edge valleys)
 
-safety_threshold: 0.60
-max_sensing_range: 3.0
+safety_threshold: 0.70
+max_sensing_range: 5.0
 vertical_margin: 0.10
-floor_margin: 0.10  
-safety_margin: 0.60
+floor_margin: 0.10  #it was 0.20
+safety_margin: 0.50
 
-temporal_window: 3 
+temporal_window: 3 #VF* uses the median of the last N scans to smooth out noise and transient obstacles. A value of 1 means no temporal smoothing.
 s_max: 10
 
-mu1: 3.0   #target
+mu1: 5.0   #target
 mu2: 1.0    #heading      #for narrow corridor 1.0 , 1.0 , 0.05
-mu3: 1.0   #prev-bin
+mu3: 0.05   #prev-bin
 
-speed_reduction: 1.0
+speed_reduction: 0.8
 num_vfh_waypoints: 5
 vfh_waypoint_index: 0
 recovery_reverse_cycles: 1
 recovery_turn_cycles: 2
 
-
+# Depth Anything V2 (metric, indoor)
 depth_encoder: "vits"
 depth_max_depth: 20
-depth_scale: 0.9 
-depth_weights:  "/home/<USER>/VfhPlus/deployment/model_weights/depth_anything_v2_metric_hypersim_vits.pth"
+depth_scale: 0.80 #this is a multiplier applied to the raw depth values before feeding them into the model. Adjusting this can help if the model was trained on data with a different depth scale than your sensor provides.
+depth_weights:  "/home/mahsa/VfhPlus/deployment/model_weights/depth_anything_v2_metric_hypersim_vits.pth"

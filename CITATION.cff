@@ -1,0 +1,33 @@
+cff-version: 1.2.0
+message: "If you use this artifact, please cite the paper below."
+title: "VAULT: Vision-Aware Unified Layer for safe Traversal"
+abstract: "Research artifact for the ACSOS 2026 paper. VAULT is a vision-based runtime safety framework that combines NoMaD, Depth Anything V2, and VFH* on a TurtleBot4 under ROS 2 Humble, with a Webots simulation and an evaluation harness."
+type: software
+license: MIT
+doi: "10.5281/zenodo.21009013"
+repository-code: "https://github.com/MahsaNikmard/VAULT.github.io"
+url: "https://mahsanikmard.github.io/VAULT.github.io/"
+authors:
+  - family-names: Nikmard
+    given-names: Mahsa
+    affiliation: "Gran Sasso Science Institute"
+  - family-names: Pelliccione
+    given-names: Patrizio
+    affiliation: "Gran Sasso Science Institute"
+  - family-names: D'Angelo
+    given-names: Gianlorenzo
+    affiliation: "Gran Sasso Science Institute"
+preferred-citation:
+  type: conference-paper
+  title: "When Should a Robot Stop Learning and Start Reasoning?"
+  year: 2026
+  collection-title: "Proceedings of the 2026 IEEE International Conference on Autonomic Computing and Self-Organizing Systems (ACSOS)"
+  publisher:
+    name: IEEE
+  authors:
+    - family-names: Nikmard
+      given-names: Mahsa
+    - family-names: Pelliccione
+      given-names: Patrizio
+    - family-names: D'Angelo
+      given-names: Gianlorenzo

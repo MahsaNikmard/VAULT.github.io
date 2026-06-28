@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""pd_controller_ros2.py – ROS 2 version of the original PD controller node.
+
+Behaviour
+---------
+* Listens to WAYPOINT_TOPIC (`Float32MultiArray`) and REACHED_GOAL_TOPIC (`Bool`).
+* Computes linear/angular velocity commands with a simple PD‑style heuristic.
+* Publishes geometry_msgs/Twist on the velocity topic defined in robot.yaml.
+* Continuously measures and reports distance traveled.
+* Also checks total elapsed time and triggers goal reached when time exceeds 1 minute.
+
+Run after installing your Python package (or directly with `ros2 run` / `python`).
+"""
 from __future__ import annotations
 
 import math
@@ -15,9 +27,10 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from std_msgs.msg import Float32MultiArray, Bool
 
-from utils import clip_angle 
+from utils import clip_angle  # assumes utils.py provides this helper
 
 def _resolve_config_path() -> str:
+    """Extract --config-dir early so module-level config loading works."""
     import argparse as _ap
     from pathlib import Path as _P
     _p = _ap.ArgumentParser(add_help=False)
@@ -35,11 +48,11 @@ with open(CONFIG_PATH, "r") as f:
 MAX_V: float = robot_cfg["max_v"]
 MAX_W: float = robot_cfg["max_w"]
 
-RATE: int = robot_cfg["frame_rate"]     
-DT: float = 1.0 / RATE                 
+RATE: int = robot_cfg["frame_rate"]     # match exploration node rate
+DT: float = 1.0 / RATE                 # velocity scaling uses actual execution rate
 EPS: float = 1e-8
 WAYPOINT_TIMEOUT_DEFAULT: float = 1.0
-WAYPOINT_TIMEOUT_VFH: float = 5.0  
+WAYPOINT_TIMEOUT_VFH: float = 5.0  # VFH inference is heavier; keep last safe waypoint longer
 DISTANCE_REPORT_INTERVAL: float = 0.1
 MAX_TIME: float = 30000.0
 
@@ -53,7 +66,15 @@ class PDControllerNode(Node):
             WAYPOINT_TIMEOUT_VFH if args.control == "vfh" else WAYPOINT_TIMEOUT_DEFAULT
         )
 
-        if  args.robot == "turtlebot4":
+        if args.robot == "locobot":
+            waypoint_topic = "/robot1/waypoint"
+            vel_topic = "/robot1/cmd_vel"
+            odom_topic = "/odom"
+        elif args.robot == "robomaster":
+            waypoint_topic = "/robot3/waypoint"
+            vel_topic = "/cmd_vel"
+            odom_topic = "/odom"
+        elif args.robot == "turtlebot4":
             waypoint_topic = "/robot2/waypoint"
             vel_topic = "/robot2/cmd_vel"
             odom_topic = "/odom"
@@ -65,6 +86,7 @@ class PDControllerNode(Node):
         self.waypoint: Optional[np.ndarray] = None
         self._last_wp_time: float = 0.0
         self.reached_goal: bool = False
+        # Distance tracking from odometry (not commanded velocity)
         self.total_distance: float = 0.0
         self._last_odom_x: Optional[float] = None
         self._last_odom_y: Optional[float] = None
@@ -79,7 +101,9 @@ class PDControllerNode(Node):
         )
         self.create_subscription(Bool, "/topoplan/reached_goal", self._goal_cb, 1)
 
+        # Odometry subscription (RELIABLE for accurate distance tracking)
         from rclpy.qos import QoSProfile, ReliabilityPolicy
+        # odom_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE) 
         odom_qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.create_subscription(Odometry, odom_topic, self._odom_cb, odom_qos)
 
@@ -137,6 +161,7 @@ class PDControllerNode(Node):
         else:
             raise ValueError("Waypoint must be 2‑D or 4‑D vector")
 
+        # Backward waypoint (dx < 0) → reverse straight (VFH* recovery)
         if dx < -EPS and not use_heading:
             v = float(np.clip(dx / DT, -MAX_V, 0.0))
             return v, 0.0
@@ -149,7 +174,7 @@ class PDControllerNode(Node):
             desired_yaw = np.sign(dy) * np.pi / 2
         else:
             v = dx / DT
-            desired_yaw = np.arctan2(dy, dx)
+            desired_yaw = np.arctan(dy / dx)
 
         w = clip_angle(desired_yaw) / DT
 
@@ -191,9 +216,9 @@ def main(args=None):
     parser.add_argument(
         "--robot",
         type=str,
-        default="turtlebot4",
-        choices=[ "turtlebot4"],
-        help="Robot type",
+        default="locobot",
+        choices=["locobot", "locobot2", "robomaster", "turtlebot4"],
+        help="Robot type (locobot, robomaster, turtlebot4)",
     )
     parser.add_argument(
         "--config-dir",
